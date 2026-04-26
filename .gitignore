@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+*.log
+*.tgz
+.DS_Store
+.env
+.env.*
+.crewmate/
+.crewmate-test/
+tmp/
+scratch/
+.vscode/
+.idea/
+*.tsbuildinfo
