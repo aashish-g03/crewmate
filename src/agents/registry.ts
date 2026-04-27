@@ -11,11 +11,11 @@ import type { AgentCard } from '../envelope.ts';
  */
 
 export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
-  // v1 ships read-only / non-interactive flags hardcoded. Workers can't answer
-  // interactive approval prompts (their stdin is the mailbox), so plan-mode
-  // must be enforced at launch. Bounded per-pool/per-task overrides land in
-  // v1.1 — until then there is no supported override path. Editing
-  // agent-card.json on disk does NOT survive the next `crewmate init`.
+  // Workers can't answer interactive approval prompts (stdin is the mailbox).
+  // `auto_edit` auto-approves file reads + edits; shell commands still require
+  // approval (= hang in headless mode = safe fail). `plan` mode was too
+  // restrictive — it blocked ALL tool use including file reads, making gemini
+  // useless for the codebase-audit use case it exists for.
   'gemini-worker': {
     name: 'gemini-worker',
     description:
@@ -27,7 +27,7 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
       'cross-file verification',
       'hallucination check',
     ],
-    cliCommand: ['gemini', '-p', '{prompt}', '--approval-mode', 'plan'],
+    cliCommand: ['gemini', '-p', '{prompt}', '--approval-mode', 'auto_edit'],
   },
   'kimi-worker': {
     name: 'kimi-worker',
