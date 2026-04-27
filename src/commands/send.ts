@@ -7,6 +7,7 @@ import {
   outboxResultPath,
   workersDir,
   homeDir,
+  stdoutLogPath,
 } from '../paths.ts';
 import { writeTaskRequest, readTaskResult } from '../transports/mailbox.ts';
 import { log } from '../logger.ts';
@@ -140,15 +141,17 @@ export async function cmdSend(
 
   let claimedPid: string | null = null;
   let lastHeartbeatAt = 0;
+  let stdoutOffset = 0;
+  const logPath = stdoutLogPath(agent, taskId);
 
   while (Date.now() < deadline) {
     // 1. Result ready?
     try {
       await fs.access(resultPath);
+      // Flush any remaining stdout before returning the result.
+      await drainWorkerStdout(logPath, stdoutOffset);
       const result = await readTaskResult(resultPath);
       const ms = Date.now() - startMs;
-      // v1.1: surface contextId + turnNumber in the completion line so the
-      // user can see at a glance which conversation/turn this was.
       const ctxSuffix =
         result.contextId && result.turnNumber !== undefined
           ? ` (context: ${result.contextId}, turn ${result.turnNumber})`
@@ -173,7 +176,15 @@ export async function cmdSend(
       }
     }
 
-    // 3. Periodic heartbeat
+    // 3. Stream live worker stdout — tail the log file and emit new chunks.
+    //    This gives the orchestrator (and human) real-time visibility into
+    //    what gemini/kimi/codex is doing. If the worker goes off-track, the
+    //    orchestrator can cancel + re-prompt.
+    if (claimedPid) {
+      stdoutOffset = await streamWorkerChunk(logPath, stdoutOffset, agent);
+    }
+
+    // 4. Periodic heartbeat
     const elapsed = Date.now() - startMs;
     if (elapsed - lastHeartbeatAt >= HEARTBEAT_MS) {
       const secs = Math.floor(elapsed / 1000);
@@ -184,7 +195,7 @@ export async function cmdSend(
       lastHeartbeatAt = elapsed;
     }
 
-    // 4. Polling backoff
+    // 5. Polling backoff
     await sleep(elapsed < 2000 ? 50 : 500);
   }
 
@@ -253,6 +264,56 @@ async function hasAliveWorker(agent: string): Promise<boolean> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Read newly-appended bytes from the worker's stdout log and emit them
+ * to our stderr, prefixed with the agent name. Returns the new offset.
+ * Silent on ENOENT (log hasn't been created yet — worker hasn't started
+ * writing) and on no-new-data (nothing appended since last poll).
+ */
+async function streamWorkerChunk(
+  logPath: string,
+  offset: number,
+  agent: string
+): Promise<number> {
+  let stat;
+  try {
+    stat = await fs.stat(logPath);
+  } catch {
+    return offset; // file doesn't exist yet
+  }
+  if (stat.size <= offset) return offset; // no new data
+
+  const fd = await fs.open(logPath, 'r');
+  try {
+    const len = stat.size - offset;
+    const buf = Buffer.alloc(len);
+    await fd.read(buf, 0, len, offset);
+    const text = buf.toString('utf8');
+    // Emit each line with a prefix so the orchestrator can distinguish
+    // worker output from crewmate's own progress lines.
+    for (const line of text.split('\n')) {
+      if (line.length > 0) {
+        process.stderr.write(`[${agent}] ${line}\n`);
+      }
+    }
+    return stat.size;
+  } finally {
+    await fd.close();
+  }
+}
+
+/**
+ * Final flush: drain any remaining stdout bytes before returning the result.
+ * Ensures the orchestrator sees the complete worker output even if the last
+ * poll cycle missed a few bytes.
+ */
+async function drainWorkerStdout(
+  logPath: string,
+  offset: number
+): Promise<void> {
+  await streamWorkerChunk(logPath, offset, 'worker');
 }
 
 /**
