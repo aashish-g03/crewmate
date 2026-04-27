@@ -1,9 +1,12 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { v4 as uuidv4 } from 'uuid';
 import {
   ensureAgentTree,
   outboxResultPath,
   workersDir,
+  homeDir,
 } from '../paths.ts';
 import { writeTaskRequest, readTaskResult } from '../transports/mailbox.ts';
 import { log } from '../logger.ts';
@@ -119,8 +122,8 @@ export async function cmdSend(
 
   let claimedPid: string | null = null;
   let lastHeartbeatAt = 0;
-  let warnedNoWorker = false;
-  const NO_WORKER_WARN_MS = 10_000;
+  let autoStarted = false;
+  const AUTO_START_MS = 3_000;
 
   while (Date.now() < deadline) {
     // 1. Result ready?
@@ -154,14 +157,23 @@ export async function cmdSend(
       }
     }
 
-    // 3. Early warning: if 10s pass with no claim, the pool is likely not running.
+    // 3. Auto-start: if 3s pass with no claim, spawn a detached pool.
+    //    Our filesystem design has no ports — extra workers just compete via
+    //    atomic claim, so auto-starting is safe even if a pool appears later.
     const elapsed = Date.now() - startMs;
-    if (!claimedPid && !warnedNoWorker && elapsed >= NO_WORKER_WARN_MS) {
-      warnedNoWorker = true;
+    if (!claimedPid && !autoStarted && elapsed >= AUTO_START_MS) {
+      autoStarted = true;
       process.stderr.write(
-        `[crewmate] WARNING: no worker has claimed this task after ${Math.floor(elapsed / 1000)}s.\n` +
-        `[crewmate] Is \`crewmate up ${agent}\` running in another terminal?\n`
+        `[crewmate] no worker running — auto-starting pool for ${agent}\n`
       );
+      try {
+        await autoStartPool(agent);
+      } catch (err) {
+        process.stderr.write(
+          `[crewmate] auto-start failed: ${(err as Error).message}\n` +
+          `[crewmate] start manually: crewmate up ${agent}\n`
+        );
+      }
     }
 
     // 4. Periodic heartbeat
@@ -215,4 +227,42 @@ async function findClaimedPid(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Spawn `crewmate up <agent> --workers=1` as a detached background process.
+ * The pool stays alive after `send` exits, ready for subsequent sends.
+ * Detached + unref'd so the parent (send) doesn't wait for it.
+ *
+ * Safe to call even if a pool is already running — extra workers just
+ * compete via atomic inbox claim, no conflicts.
+ */
+async function autoStartPool(agent: string): Promise<void> {
+  const cliScript = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    'cli.ts'
+  );
+  const logPath = path.join(homeDir(), `${agent}-autostart.log`);
+  const logFd = await fs.open(logPath, 'a');
+
+  const proc = Bun.spawn(['bun', cliScript, 'up', agent, '--workers=1'], {
+    env: {
+      ...process.env,
+      CREWMATE_HOME: homeDir(),
+    },
+    stdin: 'ignore',
+    stdout: logFd.fd as unknown as 'ignore',
+    stderr: logFd.fd as unknown as 'ignore',
+  });
+
+  // Detach: don't let this send process wait for the pool to exit.
+  proc.unref();
+
+  log({
+    event: 'pool_auto_started',
+    agent,
+    pid: proc.pid,
+    message: `auto-started by send (log: ${logPath})`,
+  });
 }

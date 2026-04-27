@@ -62,6 +62,8 @@ Execute directly when:
 crewmate send <agent-name> "<your full prompt here>" --timeout=300000
 ```
 
+**NEVER add `2>/dev/null` to this command.** Stderr carries live progress lines (`queued → claimed → running Ns → completed`) that are your only visibility into what the worker is doing. Suppressing stderr is suppressing the diagnostic system we built for you. If a worker isn't claiming the task, stderr will tell you within 10 seconds; with `2>/dev/null` you stare at a spinner for 5 minutes.
+
 Returns a single JSON `TaskResult` on stdout, exit 0:
 
 ```json
@@ -192,6 +194,7 @@ If `crewmate send` itself errors (non-zero exit, non-JSON stdout), the mesh is b
 
 ## Hygiene
 
-- Never invoke `crewmate up` from inside this subagent — that's a long-running supervisor the user starts manually (or the validation script starts in CI).
+- **Never suppress stderr** on `crewmate send`. No `2>/dev/null`, no `2>&1 | grep`. The progress lines are signal, not noise.
+- Never invoke `crewmate up` from inside this subagent — the pool auto-starts if no worker is running (see below).
 - Never delegate a task that mutates this repo. Workers should be treated as read-only oracles.
 - Always pass `--timeout=` explicitly. The default may be generous; you are responsible for bounded waits.
