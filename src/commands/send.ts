@@ -8,6 +8,7 @@ import {
   workersDir,
   homeDir,
   stdoutLogPath,
+  stderrLogPath,
 } from '../paths.ts';
 import { writeTaskRequest, readTaskResult } from '../transports/mailbox.ts';
 import { log } from '../logger.ts';
@@ -142,14 +143,17 @@ export async function cmdSend(
   let claimedPid: string | null = null;
   let lastHeartbeatAt = 0;
   let stdoutOffset = 0;
-  const logPath = stdoutLogPath(agent, taskId);
+  let stderrOffset = 0;
+  const outLogPath = stdoutLogPath(agent, taskId);
+  const errLogPath = stderrLogPath(agent, taskId);
 
   while (Date.now() < deadline) {
     // 1. Result ready?
     try {
       await fs.access(resultPath);
-      // Flush any remaining stdout before returning the result.
-      await drainWorkerStdout(logPath, stdoutOffset);
+      // Flush any remaining output before returning the result.
+      await streamWorkerChunk(errLogPath, stderrOffset, `${agent}:process`);
+      await streamWorkerChunk(outLogPath, stdoutOffset, agent);
       const result = await readTaskResult(resultPath);
       const ms = Date.now() - startMs;
       const ctxSuffix =
@@ -176,12 +180,12 @@ export async function cmdSend(
       }
     }
 
-    // 3. Stream live worker stdout — tail the log file and emit new chunks.
-    //    This gives the orchestrator (and human) real-time visibility into
-    //    what gemini/kimi/codex is doing. If the worker goes off-track, the
-    //    orchestrator can cancel + re-prompt.
+    // 3. Stream live worker output — tail both log files and emit new chunks.
+    //    stderr = process visibility (what tools gemini is calling, files read, errors)
+    //    stdout = result visibility (the actual response text arriving)
     if (claimedPid) {
-      stdoutOffset = await streamWorkerChunk(logPath, stdoutOffset, agent);
+      stderrOffset = await streamWorkerChunk(errLogPath, stderrOffset, `${agent}:process`);
+      stdoutOffset = await streamWorkerChunk(outLogPath, stdoutOffset, agent);
     }
 
     // 4. Periodic heartbeat
@@ -304,17 +308,6 @@ async function streamWorkerChunk(
   }
 }
 
-/**
- * Final flush: drain any remaining stdout bytes before returning the result.
- * Ensures the orchestrator sees the complete worker output even if the last
- * poll cycle missed a few bytes.
- */
-async function drainWorkerStdout(
-  logPath: string,
-  offset: number
-): Promise<void> {
-  await streamWorkerChunk(logPath, offset, 'worker');
-}
 
 /**
  * Spawn `crewmate up <agent> --workers=1` as a detached background process.
