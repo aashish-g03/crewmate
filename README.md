@@ -178,53 +178,65 @@ Add your own by appending to `src/agents/registry.ts` and re-running
 
 ## Connecting Claude Code (and friends)
 
-There are two adapters on top of the same `crewmate` core. Pick whichever
-your client speaks; both call into the same mailbox engine and behave
-identically.
+Two adapters, same engine underneath. Pick one or use both.
 
-### Adapter 1 — Bash (universal, zero-install)
+### Option A — MCP (recommended for Claude Code, Cursor, Zed)
 
-Any agent or shell that can run a command can use `crewmate send`:
-
-```bash
-crewmate send gemini-worker "audit src/auth/jwt.ts for token-expiry bugs" \
-  --timeout=300000
-```
-
-Stdout is the `TaskResult` JSON; stderr streams progress (`queued → claimed
-→ <Ns elapsed> → completed`). Drop the bundled `mesh-router.md` subagent
-into Claude Code with one command:
-
-```bash
-crewmate install-claude-agent --global    # → ~/.claude/agents/mesh-router.md
-```
-
-`mesh-router` runs `crewmate doctor --json` first, then only delegates to
-workers that report `ready === true`. If you have only Gemini installed it
-won't try to call Kimi or Codex.
-
-### Adapter 2 — MCP (Claude Code, Cursor, Zed)
-
-Run the bundled MCP server on stdio:
+MCP gives you structured tools, streaming progress, and per-tool
+permissions. This is the recommended path for daily use.
 
 ```bash
 claude mcp add crewmate -- crewmate mcp
 ```
 
-Tools exposed (v1.0 base): `crewmate_send_and_wait`, `crewmate_list_agents`,
-`crewmate_status`, `crewmate_cancel`. v1.1 adds five more for context
-management: `crewmate_new_context`, `crewmate_list_contexts`,
-`crewmate_show_context`, `crewmate_destroy_context`, and
-`crewmate_purge_archived` (the only permanent-delete tool — `destroy_context`
-only archives). `send_and_wait` emits MCP
-`notifications/progress` while the worker runs (queued, claimed, 5 s
-heartbeats), so the host UI shows live progress instead of a blank
-spinner. Cancellation from the host writes a `cancel/<taskId>` sentinel
-in the mailbox — workers honour it within ~50 ms.
+Claude Code gets 9 tools directly — no subagent needed:
 
-The Bash CLI and the MCP server are peer adapters: same `crewmate core`
-underneath, no functional difference, choose by what your environment
-prefers. A future A2A adapter would slot in the same way.
+| Tool | Purpose |
+|---|---|
+| `crewmate_list_agents` | Discover ready workers + load |
+| `crewmate_send_and_wait` | Delegate and wait for result (with streaming progress) |
+| `crewmate_status` | Non-blocking poll of a task or queue depths |
+| `crewmate_cancel` | Abort a stuck task |
+| `crewmate_new_context` | Mint a persistent context before first turn |
+| `crewmate_list_contexts` | List active persistent contexts |
+| `crewmate_show_context` | Inspect a context's transcript |
+| `crewmate_destroy_context` | Archive a context |
+| `crewmate_purge_archived` | Permanently delete old archived contexts |
+
+Routing guidance (when to pick which worker) is in `.claude/CLAUDE.md` —
+Claude Code reads it automatically when working in this project. For
+global use, copy the routing section to `~/.claude/CLAUDE.md`.
+
+### Option B — Bash subagent (universal, works from any shell)
+
+For non-MCP clients, or when you want a dedicated routing subagent:
+
+```bash
+crewmate install-claude-agent --global    # → ~/.claude/agents/mesh-router.md
+```
+
+This installs `mesh-router`, a subagent that delegates via
+`crewmate send` in Bash. It discovers workers via `crewmate doctor --json`
+and only delegates to ready ones. Stderr streams live worker output.
+
+```bash
+# Or use crewmate send directly from any terminal:
+crewmate send gemini-worker "audit src/ for dead code" --timeout=120000
+```
+
+### Which to choose?
+
+| | MCP | Bash subagent |
+|---|---|---|
+| Streaming progress | Native MCP notifications | Stderr lines |
+| Tool discovery | Shows in Claude Code UI | Hidden behind mesh-router |
+| Works outside Claude Code | No (MCP-aware clients only) | Yes (any shell) |
+| Routing logic lives in | `.claude/CLAUDE.md` | `mesh-router.md` template |
+| Setup | `claude mcp add` (one command) | `crewmate install-claude-agent` |
+
+Both adapters call into the same `crewmate core` — same mailbox, same
+workers, same result envelopes. A future A2A adapter would slot in the
+same way.
 
 ## v1 contract (read this before delegating)
 
