@@ -119,6 +119,8 @@ export async function cmdSend(
 
   let claimedPid: string | null = null;
   let lastHeartbeatAt = 0;
+  let warnedNoWorker = false;
+  const NO_WORKER_WARN_MS = 10_000;
 
   while (Date.now() < deadline) {
     // 1. Result ready?
@@ -152,8 +154,17 @@ export async function cmdSend(
       }
     }
 
-    // 3. Periodic heartbeat
+    // 3. Early warning: if 10s pass with no claim, the pool is likely not running.
     const elapsed = Date.now() - startMs;
+    if (!claimedPid && !warnedNoWorker && elapsed >= NO_WORKER_WARN_MS) {
+      warnedNoWorker = true;
+      process.stderr.write(
+        `[crewmate] WARNING: no worker has claimed this task after ${Math.floor(elapsed / 1000)}s.\n` +
+        `[crewmate] Is \`crewmate up ${agent}\` running in another terminal?\n`
+      );
+    }
+
+    // 4. Periodic heartbeat
     if (elapsed - lastHeartbeatAt >= HEARTBEAT_MS) {
       const secs = Math.floor(elapsed / 1000);
       const tag = claimedPid ? `running (pid=${claimedPid})` : 'awaiting claim';
