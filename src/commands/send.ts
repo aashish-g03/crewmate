@@ -111,6 +111,24 @@ export async function cmdSend(
     envelope.version = 2;
   }
 
+  // Pre-flight: if no alive worker exists for this agent, start one NOW
+  // before even writing the task. Saves the 3s detection delay.
+  if (!(await hasAliveWorker(agent))) {
+    process.stderr.write(
+      `[crewmate] no worker running — auto-starting pool for ${agent}\n`
+    );
+    try {
+      await autoStartPool(agent);
+      // Brief pause for the worker to boot and start watching inbox.
+      await sleep(800);
+    } catch (err) {
+      process.stderr.write(
+        `[crewmate] auto-start failed: ${(err as Error).message}\n` +
+        `[crewmate] start manually: crewmate up ${agent}\n`
+      );
+    }
+  }
+
   await writeTaskRequest(agent, envelope);
   log({ event: 'task_received', agent, taskId });
   process.stderr.write(`[crewmate] task ${taskId} → ${agent} (queued)\n`);
@@ -122,8 +140,6 @@ export async function cmdSend(
 
   let claimedPid: string | null = null;
   let lastHeartbeatAt = 0;
-  let autoStarted = false;
-  const AUTO_START_MS = 3_000;
 
   while (Date.now() < deadline) {
     // 1. Result ready?
@@ -157,26 +173,8 @@ export async function cmdSend(
       }
     }
 
-    // 3. Auto-start: if 3s pass with no claim, spawn a detached pool.
-    //    Our filesystem design has no ports — extra workers just compete via
-    //    atomic claim, so auto-starting is safe even if a pool appears later.
+    // 3. Periodic heartbeat
     const elapsed = Date.now() - startMs;
-    if (!claimedPid && !autoStarted && elapsed >= AUTO_START_MS) {
-      autoStarted = true;
-      process.stderr.write(
-        `[crewmate] no worker running — auto-starting pool for ${agent}\n`
-      );
-      try {
-        await autoStartPool(agent);
-      } catch (err) {
-        process.stderr.write(
-          `[crewmate] auto-start failed: ${(err as Error).message}\n` +
-          `[crewmate] start manually: crewmate up ${agent}\n`
-        );
-      }
-    }
-
-    // 4. Periodic heartbeat
     if (elapsed - lastHeartbeatAt >= HEARTBEAT_MS) {
       const secs = Math.floor(elapsed / 1000);
       const tag = claimedPid ? `running (pid=${claimedPid})` : 'awaiting claim';
@@ -223,6 +221,34 @@ async function findClaimedPid(
     }
   }
   return null;
+}
+
+/**
+ * Check if any worker process is alive for this agent by scanning
+ * workers/<pid>/ dirs and probing each PID. One alive PID = pool running.
+ * Takes <1ms on a typical workers/ tree (handful of dirs at most).
+ */
+async function hasAliveWorker(agent: string): Promise<boolean> {
+  const root = workersDir(agent);
+  let entries;
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const pid = Number(entry.name);
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    try {
+      process.kill(pid, 0);
+      return true; // at least one alive
+    } catch {
+      // dead pid — keep scanning
+    }
+  }
+  return false;
 }
 
 function sleep(ms: number): Promise<void> {
