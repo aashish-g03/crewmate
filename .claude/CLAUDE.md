@@ -12,9 +12,10 @@ crewmate is a localhost agent-mesh CLI that routes work from one coding agent (C
 bun install                          # install dependencies
 bun src/cli.ts <command>             # run any CLI command from source
 bun --watch src/cli.ts               # dev mode with auto-reload
-bash scripts/validate.sh             # e2e round-trip test (gemini-worker, requires pool running)
+bun scripts/test-acp-transport.ts    # 91-test mock suite (no external deps)
+bash scripts/validate.sh             # e2e round-trip test (requires gemini CLI)
 bash scripts/validate-mcp.sh         # e2e MCP adapter test (starts pool + drives JSON-RPC)
-bun run validate                     # alias for scripts/validate.sh
+bash scripts/validate-acp.sh         # e2e ACP transport test (requires gemini --acp)
 ```
 
 There is no build step — Bun runs TypeScript directly. There are no unit tests; validation is end-to-end via the bash scripts above, which require a running `gemini` CLI.
@@ -49,10 +50,12 @@ affinity/     → worker-PID claim sentinels for context routing
 - **`src/supervisor.ts`** — Pool manager: spawns workers, restarts on crash (1s backoff), recovers orphaned tasks, runs the TTL sweeper.
 - **`src/worker.ts`** — Core claim-and-execute loop. v1.1 adds context-aware prompt construction, affinity routing, bloat warnings, and turn persistence.
 - **`src/runner.ts`** — Subprocess executor. Substitutes `{prompt}` in `cliCommand` args. Handles timeout/abort with SIGTERM→SIGKILL escalation.
+- **`src/transports/jsonrpc.ts`** — Bidirectional JSON-RPC 2.0 client: request/response, notifications, and server→client request handling.
+- **`src/transports/acp-runner.ts`** — ACP transport: persistent child process, session management (create/close/setMode/setModel), token tracking, progress events, cancel notification, file-read request handler.
 - **`src/mcp/server.ts`** — MCP adapter exposing 9 tools over stdio (uses `@modelcontextprotocol/sdk`).
 - **`src/lifecycle/sweeper.ts`** — Archives idle contexts past their TTL.
 - **`src/lifecycle/affinity-recovery.ts`** — Clears dead-pid affinity sentinels on supervisor startup and worker death.
-- **`templates/mesh-router.md`** — Source template for the Claude Code subagent that `install-claude-agent` writes to `~/.claude/agents/`.
+- **`templates/mesh-router.md`** — Source template for the Claude Code subagent that `install-claude-agent` writes to `~/.claude/agents/`. This is the ONLY user-facing agent file — routing rules live here, not in CLAUDE.md.
 
 ### Two adapters to Claude Code
 

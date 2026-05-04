@@ -2,8 +2,8 @@
 
 A localhost **agent-mesh CLI** that lets a single user run a small fleet of
 headless coding-agent processes — Gemini, Kimi, Codex, anything with a
-prompt-and-flag interface — and route work to them through a plain-old
-filesystem mailbox.
+CLI interface — and route work to them through a filesystem mailbox
+or persistent ACP (Agent Context Protocol) connections.
 
 It is inspired by Claude Code's internal Tier-2 cross-process mailbox pattern
 (the leaked CC source ships a `~/.claude/teams/{team}/{recipient}.mailbox`
@@ -20,8 +20,11 @@ layer. `crewmate` is that layer:
 - **Dumb on purpose.** It transports prompts and runs CLIs. No personas, no
   prompt templating, no role logic. Personality lives in
   `.claude/agents/*.md` files — a separate concern.
-- **Filesystem-native.** No daemon, no socket, no port. Workers and senders
-  rendezvous through atomic `rename()` calls on a maildir-shaped tree.
+- **Two transport modes.** Spawn-per-task (classic: run CLI, get stdout) or
+  ACP (persistent JSON-RPC connection with session management, model/mode
+  selection, and real-time tool-call progress). Agents opt in via registry.
+- **Filesystem-native.** Workers and senders rendezvous through atomic
+  `rename()` calls on a maildir-shaped tree. No daemon, no socket, no port.
 - **Supervised.** A parent process keeps N worker children alive and
   propagates signals correctly.
 
@@ -92,11 +95,15 @@ crewmate up gemini-worker
 # In another shell — delegate a task
 crewmate send gemini-worker "Audit src/ for dead code" --timeout=120000
 
+# Pick a specific model or mode (ACP agents only)
+crewmate send gemini-worker "Review auth flow" --model=gemini-2.5-pro
+crewmate send gemini-worker "List all exports" --mode=plan
+
 # Or let Claude Code delegate for you:
 # just ask Claude and mesh-router will route to the right worker.
 
 # Useful companions while a delegation runs:
-crewmate watch                         # tail per-task stdout/stderr logs
+crewmate watch                         # tail per-task stdout/stderr + tool-call progress
 crewmate status                        # queue depths per agent
 crewmate list                          # agents + readiness + load
 crewmate tail                          # mesh-wide event log
@@ -118,6 +125,7 @@ See `crewmate --help` for the full command grid.
     workers/<pid>/<taskId>.task.json     # claimed work, owned by one worker
     processed/<taskId>.task.json         # archive of completed tasks
     logs/<taskId>.{stdout,stderr}.log    # captured CLI streams
+    logs/<taskId>.progress.log           # ACP tool-call progress (read, search, etc.)
 ```
 
 ## Envelopes
@@ -134,10 +142,19 @@ the shape is intentionally identical to Claude Code's `<task-notification>`:
   "summary": "First line of stdout, truncated to 200 chars",
   "result": "…full stdout…",
   "error": null,
-  "usage": { "durationMs": 12345, "exitCode": 0, "stdoutBytes": 4096 },
+  "usage": {
+    "durationMs": 12345,
+    "exitCode": 0,
+    "stdoutBytes": 4096,
+    "inputTokens": 20052,
+    "outputTokens": 156
+  },
   "completedAt": "2026-04-26T16:30:00.000Z"
 }
 ```
+
+`inputTokens` and `outputTokens` are present for ACP agents (populated from
+the agent's response metadata). Absent for spawn agents.
 
 ## Concurrency model
 
@@ -154,8 +171,13 @@ Each child:
    POSIX rename is atomic — exactly one worker wins, the rest get `ENOENT`
    and silently move on. This is the "atomic-claim trick" that lets the pool
    stay coordination-free.
-3. Runs the CLI via `runner.ts` (`Bun.spawn` with stdin ignored, stdout/stderr
-   tee'd to `logs/<id>.{stdout,stderr}.log`).
+3. Runs the task:
+   - **Spawn agents** (`transport: 'spawn'`): fires up a fresh CLI process
+     via `runner.ts`, tee's stdout/stderr to log files.
+   - **ACP agents** (`transport: 'acp'`): sends the prompt as a JSON-RPC
+     `session/prompt` message over a persistent stdio connection to the CLI
+     process (spawned once per worker, stays alive across tasks). Tool-call
+     progress streams to `logs/<id>.progress.log` in real-time.
 4. Writes the `TaskResult` to `outbox/<id>.result.json.tmp` then renames to
    `<id>.result.json` so the sender never reads a partial JSON object.
 5. Moves the claimed file into `processed/`.
@@ -166,11 +188,11 @@ Cancellation rides a parallel chokidar watch on `cancel/`. When
 
 ## Built-in agents
 
-| name              | model  | context  | strengths                                     |
-| ----------------- | ------ | -------- | --------------------------------------------- |
-| `gemini-worker`   | gemini | 2 M      | large-codebase audit, hallucination check     |
-| `kimi-worker`     | kimi   | 256 K    | deep reasoning, second opinion                |
-| `codex-worker`    | codex  | 200 K    | OpenAI-family refactors, vendor diversity     |
+| name              | model  | transport | context  | strengths                                     |
+| ----------------- | ------ | --------- | -------- | --------------------------------------------- |
+| `gemini-worker`   | gemini | **ACP**   | 2 M      | large-codebase audit, hallucination check. Autonomous — reads files, uses tools, supports model/mode selection. |
+| `kimi-worker`     | kimi   | spawn     | 256 K    | deep reasoning, second opinion                |
+| `codex-worker`    | codex  | spawn     | 200 K    | OpenAI-family refactors, vendor diversity     |
 
 Add your own by appending to `src/agents/registry.ts` and re-running
 `crewmate init`, or by hand-writing an `agent-card.json` under
@@ -226,52 +248,34 @@ The Bash CLI and the MCP server are peer adapters: same `crewmate core`
 underneath, no functional difference, choose by what your environment
 prefers. A future A2A adapter would slot in the same way.
 
-## v1 contract (read this before delegating)
+## Worker behavior contract
 
-The mesh ships **read-only and non-interactive by default**, on purpose:
+### Spawn workers (kimi, codex)
 
-1. **Workers cannot ask for permissions.** Their stdin is the mailbox,
-   not a terminal — an interactive approval prompt would hang the worker
-   forever. v1 hardcodes read-only flags at launch:
-   - `gemini-worker` launches with `--approval-mode auto_edit --skip-trust`.
-   - `kimi-worker` launches with `--quiet --plan` (read-only).
-   - `codex-worker` launches with `exec --skip-git-repo-check`.
+Spawn workers are **non-interactive**: prompt in, text out. They cannot
+read files, ask for permissions, or hold state between calls. All context
+must be included in the prompt. Persistent contexts (v1.1) work by
+concatenating prior turns into the prompt.
 
-   v1 has **no supported override path**. Editing
-   `~/.crewmate/<agent>/agent-card.json` on disk does *not* survive the
-   next `crewmate init` — it gets overwritten from the registry. The
-   trust boundary is intentionally locked at the package level for v1.
+### ACP workers (gemini)
 
-   v1.1 adds bounded per-pool ceilings (`permissions.allowed_modes` in
-   `agent-card.json`) plus a per-task `--mode=` flag rejected if it
-   exceeds the pool's ceiling. The orchestrator picks within the
-   envelope a human set at `crewmate up` time; it cannot escalate
-   itself. Tracked at the bottom of this README.
+ACP workers are **autonomous agents**: they can read files, use tools,
+and maintain session state across turns. The worker process stays alive
+across tasks via a persistent JSON-RPC connection.
 
-2. **Workers cannot ask the orchestrator clarifying questions.** Each
-   `send` is a fresh worker context **by default**: prompt in, text out.
-   If the worker's answer is "I need more info, can you clarify X?",
-   that's just text in the result. The orchestrator (Claude Code,
-   mesh-router, …) reads it, decides, and issues a *new* `send` with the
-   clarification appended. No multi-turn protocol at the mesh level.
+Key capabilities:
+- **File access**: can read any file in the project directory
+- **Tool use**: can search, grep, list directories independently
+- **Model selection**: `--model=gemini-2.5-pro` (or any available model)
+- **Mode selection**: `--mode=plan|autoEdit|yolo`
+- **Session memory**: ACP sessions retain context in-memory (no disk concatenation)
+- **Token tracking**: response includes `inputTokens` and `outputTokens`
+- **Live progress**: tool calls stream in real-time (`[agent:tool] ▶ read: file.ts`)
+- **Cancel**: abort notification stops the agent immediately (saves API cost)
+- **Retry**: transient failures (500, rate limit) auto-retry with exponential backoff
 
-   v1.1 adds **opt-in persistent contexts** (`--context=`, `--new-context`,
-   `contextId` on the MCP tool) that let a worker retain prior turns
-   across sends — see "Persistent contexts (v1.1)" below. Fresh-context-
-   per-send remains the default; existing v1 callers do not break.
-   Future v2.0 swaps the spawn-per-task runner for a persistent ACP
-   runner that reuses the same envelope shape.
-
-3. **The orchestrator can still talk to the user.** That happens through
-   Claude Code's normal subagent conversation flow — `mesh-router` is a
-   regular subagent and has multi-turn dialogue with the user for the
-   duration of its `Task` invocation. The mesh has nothing to do with
-   that path; it only governs *downward* delegation to workers.
-
-If you need a worker that asks for permissions, runs interactively, or
-holds a multi-turn session, that is a v2 feature ("permission proxy" /
-"persistent runner") and not in this release. Don't try to retrofit it
-through the mailbox — it won't end well.
+ACP workers should NOT write files — the orchestrator (Claude Code) owns
+all mutations. File-write requests from the agent are rejected.
 
 ## Persistent contexts (v1.1)
 

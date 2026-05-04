@@ -37,7 +37,45 @@ Putting role intelligence in shims would couple two things that should evolve in
 
 ## ACP transport
 
-Agents whose CLI supports the Agent Context Protocol can set `transport: 'acp'` and `acpCommand` in the registry. The worker spawns the CLI once and sends tasks as JSON-RPC `sessions/message` calls instead of spawning a fresh process per task. Sessions live in the agent's memory, eliminating disk-based context concatenation. Set `transport: 'spawn'` (or omit it) for CLIs that don't support ACP.
+Agents whose CLI supports the Agent Context Protocol can set `transport: 'acp'` and `acpCommand` in the registry. The worker spawns the CLI once and communicates via JSON-RPC over stdin/stdout instead of spawning a fresh process per task.
+
+### How it works
+
+1. Worker starts → spawns `acpCommand` (e.g. `gemini --acp`) as a persistent child process
+2. Performs ACP `initialize` handshake → receives `agentInfo`, `agentCapabilities`
+3. For each task: creates a `session/new` → receives available `modes` and `models` → sends `session/prompt`
+4. Response content arrives via streamed `session/update` notifications (`agent_message_chunk`, `tool_call`, `tool_call_update`)
+5. Token usage parsed from response `_meta.quota.token_count`
+6. On cancel: sends `notifications/cancel` to stop the agent immediately
+7. On shutdown: sends `session/close` for all sessions, then SIGTERM→SIGKILL
+
+### Per-task model and mode selection
+
+ACP agents (Gemini) expose available models and modes in the `session/new` response. Users can select per-task:
+
+```bash
+crewmate send gemini-worker "Audit src/" --model=gemini-2.5-pro --mode=plan
+```
+
+Available Gemini models: `auto-gemini-3` (default), `auto-gemini-2.5`, `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`.
+
+Available modes: `default`, `autoEdit`, `plan` (read-only), `yolo` (auto-approve all).
+
+### Adding ACP support to a new agent
+
+In `src/agents/registry.ts`, add `transport: 'acp'` and `acpCommand`:
+
+```typescript
+'my-agent': {
+  name: 'my-agent',
+  // ...
+  cliCommand: ['my-cli', '-p', '{prompt}'],  // fallback for spawn mode
+  transport: 'acp',
+  acpCommand: ['my-cli', '--acp'],           // persistent ACP process
+},
+```
+
+The `cliCommand` stays as a fallback. If ACP fails to initialize, the worker falls back to spawn-per-task automatically.
 
 ## Triangulation example
 
