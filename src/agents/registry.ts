@@ -38,6 +38,7 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
       'auto_edit',
       '--skip-trust',
     ],
+    transport: 'spawn',
   },
   'kimi-worker': {
     name: 'kimi-worker',
@@ -47,6 +48,7 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
     strengths: ['deep reasoning', 'algorithmic problems', 'second opinion'],
     // --plan = kimi's read-only mode. --quiet implies --print --final-message-only.
     cliCommand: ['kimi', '-p', '{prompt}', '--quiet', '--plan'],
+    transport: 'spawn',
     setupHint:
       "If you see 'LLM not set' on first run: run `kimi` once interactively, pick a model, set the API key.",
   },
@@ -63,6 +65,7 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
     // codex exec is non-interactive. --skip-git-repo-check avoids the
     // "not a git repo" prompt for tasks executed outside a repo.
     cliCommand: ['codex', 'exec', '--skip-git-repo-check', '{prompt}'],
+    transport: 'spawn',
     setupHint:
       'Codex CLI not installed. Install via `npm i -g @openai/codex` (or your preferred Codex CLI).',
   },

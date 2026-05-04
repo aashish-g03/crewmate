@@ -48,3 +48,5 @@ export interface LogEvent {
   currentCount?: number;
   promptBytes?: number;
 }
+
+export type AcpSessionId = string;
