@@ -32,7 +32,9 @@ import {
   ContextNotFoundError,
 } from './transports/mailbox.ts';
 import { runCli } from './runner.ts';
+import { AcpRunner } from './transports/acp-runner.ts';
 import { log, closeLogger } from './logger.ts';
+import type { RunnerResult } from './types.ts';
 import type {
   ContextTurn,
   TaskRequest,
@@ -101,6 +103,24 @@ async function main(): Promise<void> {
   const card = await loadAgentCard(AGENT_NAME);
   const config = await loadAgentConfig(AGENT_NAME);
 
+  const isAcp = card.transport === 'acp' && card.acpCommand && card.acpCommand.length > 0;
+  let acpRunner: AcpRunner | null = null;
+  if (isAcp) {
+    acpRunner = new AcpRunner(card);
+    try {
+      await acpRunner.ensureRunning();
+      log({ event: 'acp_worker_ready', agent: AGENT_NAME, pid });
+    } catch (err) {
+      log({
+        event: 'acp_worker_fallback',
+        agent: AGENT_NAME,
+        pid,
+        error: (err as Error).message,
+      });
+      acpRunner = null;
+    }
+  }
+
   await ensureAgentTree(AGENT_NAME);
   await fs.mkdir(workerDir(AGENT_NAME, pid), { recursive: true });
 
@@ -113,6 +133,92 @@ async function main(): Promise<void> {
   // on every add and we may re-see the same file repeatedly during the brief
   // window before the holder picks it up.
   const seenSkip = new Set<string>(); // "<taskId>:<holderPid>"
+
+  // ─── ACP fast-path task runner (closure over acpRunner, AGENT_NAME) ───────
+  const runAcpTask = async (
+    req: TaskRequest,
+    taskId: string,
+    ac: AbortController,
+    startedAt: number,
+    cfg: typeof config
+  ): Promise<TaskResult> => {
+    if (!acpRunner) {
+      return {
+        taskId,
+        agent: AGENT_NAME,
+        status: 'failed',
+        summary: 'ACP runner not available',
+        result: '',
+        error: 'acpRunner is null',
+        usage: { durationMs: Date.now() - startedAt, exitCode: null, stdoutBytes: 0 },
+        completedAt: new Date().toISOString(),
+      };
+    }
+    if (!acpRunner.alive) {
+      try {
+        await acpRunner.ensureRunning();
+      } catch (err) {
+        return {
+          taskId,
+          agent: AGENT_NAME,
+          status: 'failed',
+          summary: 'ACP process not available',
+          result: '',
+          error: (err as Error).message,
+          usage: { durationMs: Date.now() - startedAt, exitCode: null, stdoutBytes: 0 },
+          completedAt: new Date().toISOString(),
+        };
+      }
+    }
+
+    let sessionId: string;
+    const isNewContext = req.newContext;
+    const existingContextId = req.contextId;
+
+    if (isNewContext || !existingContextId) {
+      sessionId = await acpRunner.createSession({ cwd: req.context?.cwd });
+    } else {
+      sessionId = existingContextId;
+    }
+
+    const timeoutMs = req.timeoutMs ?? cfg.timeoutMs;
+    const runRes = await acpRunner.sendMessage(sessionId, req.prompt, {
+      timeoutMs,
+      signal: ac.signal,
+    });
+
+    let status: TaskStatus = 'completed';
+    let error: string | null = null;
+    if (runRes.hint === 'aborted') {
+      status = 'canceled';
+      error = 'Canceled by cancel sentinel';
+    } else if (runRes.hint === 'timeout') {
+      status = 'timeout';
+      error = `Exceeded timeoutMs=${timeoutMs}`;
+    } else if (runRes.exitCode !== 0 && runRes.exitCode !== null) {
+      status = 'failed';
+      error = runRes.stderr.trim().slice(-500) || 'ACP request failed';
+    }
+
+    const session = acpRunner.getSession(sessionId);
+
+    return {
+      taskId,
+      agent: AGENT_NAME,
+      status,
+      summary: summarize(runRes.stdout, status),
+      result: runRes.stdout,
+      error,
+      usage: {
+        durationMs: runRes.durationMs,
+        exitCode: runRes.exitCode,
+        stdoutBytes: Buffer.byteLength(runRes.stdout, 'utf8'),
+      },
+      completedAt: new Date().toISOString(),
+      contextId: isNewContext ? sessionId : (existingContextId ?? null),
+      turnNumber: session?.turnCount,
+    };
+  };
 
   // ─── inbox claim path ─────────────────────────────────────────────────────
   //
@@ -248,7 +354,11 @@ async function main(): Promise<void> {
     try {
       // ─── v1 fast path: no context wanted ───────────────────────────────
       if (!wantsContext) {
-        result = await runFreshContextTask(card, req, taskId, ac, startedAt, config);
+        if (acpRunner) {
+          result = await runAcpTask(req, taskId, ac, startedAt, config);
+        } else {
+          result = await runFreshContextTask(card, req, taskId, ac, startedAt, config);
+        }
         return; // result is written below in finally
       }
 
@@ -426,13 +536,27 @@ async function main(): Promise<void> {
       // Run the CLI.
       const timeoutMs = req.timeoutMs ?? config.timeoutMs;
       const cwd = req.context?.cwd;
-      const runRes = await runCli(card, constructedPrompt, {
-        cwd,
-        timeoutMs,
-        signal: ac.signal,
-        stdoutLogPath: stdoutLogPath(AGENT_NAME, taskId),
-        stderrLogPath: stderrLogPath(AGENT_NAME, taskId),
-      });
+      let runRes: RunnerResult;
+      if (acpRunner) {
+        let acpSessionId: string;
+        if (req.newContext || !resolvedContextId) {
+          acpSessionId = await acpRunner.createSession({ cwd });
+        } else {
+          acpSessionId = resolvedContextId;
+        }
+        runRes = await acpRunner.sendMessage(acpSessionId, req.prompt, {
+          timeoutMs,
+          signal: ac.signal,
+        });
+      } else {
+        runRes = await runCli(card, constructedPrompt, {
+          cwd,
+          timeoutMs,
+          signal: ac.signal,
+          stdoutLogPath: stdoutLogPath(AGENT_NAME, taskId),
+          stderrLogPath: stderrLogPath(AGENT_NAME, taskId),
+        });
+      }
 
       let status: TaskStatus = 'completed';
       let error: string | null = null;
@@ -730,6 +854,9 @@ async function main(): Promise<void> {
     log({ event: 'worker_died', agent: AGENT_NAME, pid, reason: sig });
     for (const entry of inFlight.values()) entry.abort.abort();
     await Promise.allSettled([inboxWatcher.close(), cancelWatcher.close()]);
+    if (acpRunner) {
+      await acpRunner.shutdown();
+    }
     await closeLogger();
     process.exit(0);
   };
