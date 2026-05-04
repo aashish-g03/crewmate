@@ -207,6 +207,7 @@ export class AcpRunner {
     let aborted = false;
     const onAbort = () => {
       aborted = true;
+      this.rpc?.notify('notifications/cancel', { sessionId });
     };
     opts?.signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -264,6 +265,16 @@ export class AcpRunner {
     } finally {
       opts?.signal?.removeEventListener('abort', onAbort);
     }
+  }
+
+  async closeSession(sessionId: string): Promise<void> {
+    if (!this.rpc || !this.initialized) return;
+    try {
+      await this.rpc.request('session/close', { sessionId }, 5_000);
+    } catch {
+      // best effort — agent may have already closed it
+    }
+    this.sessions.delete(sessionId);
   }
 
   getSession(sessionId: string): AcpSession | undefined {
