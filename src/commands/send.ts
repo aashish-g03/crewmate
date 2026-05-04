@@ -34,6 +34,8 @@ interface SendOptions {
   ttlMs?: number;
   /** Agent mode to set for this task (e.g. plan, autoEdit, yolo). ACP-only. */
   mode?: string;
+  /** Model to use for this task (e.g. gemini-2.5-pro). ACP-only. */
+  model?: string;
 }
 
 const CONTEXT_ID_REGEX = /^ctx_[a-z0-9]{8}$/;
@@ -117,6 +119,10 @@ export async function cmdSend(
   }
   if (opts.mode !== undefined) {
     envelope.mode = opts.mode;
+    envelope.version = 2;
+  }
+  if (opts.model !== undefined) {
+    envelope.model = opts.model;
     envelope.version = 2;
   }
 

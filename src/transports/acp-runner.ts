@@ -14,6 +14,32 @@ interface AcpSession {
   turnCount: number;
 }
 
+export interface AcpAgentInfo {
+  name: string;
+  title?: string;
+  version?: string;
+}
+
+export interface AcpModeInfo {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface AcpModelInfo {
+  modelId: string;
+  name: string;
+  description?: string;
+}
+
+export interface AcpSessionInfo {
+  sessionId: string;
+  availableModes: AcpModeInfo[];
+  currentModeId: string;
+  availableModels: AcpModelInfo[];
+  currentModelId: string;
+}
+
 export interface AcpProgressEvent {
   type: 'thinking' | 'tool_start' | 'tool_done' | 'chunk' | 'info';
   tool?: string;
@@ -36,6 +62,8 @@ export class AcpRunner {
   private streamedContent: string[] = [];
   private spawning: Promise<void> | null = null;
   private progressHandler: AcpProgressHandler | null = null;
+  private _agentInfo: AcpAgentInfo | null = null;
+  private sessionInfoMap = new Map<string, AcpSessionInfo>();
 
   constructor(card: AgentCard, opts?: { cwd?: string }) {
     this.card = card;
@@ -147,6 +175,16 @@ export class AcpRunner {
       );
     }
 
+    const initResult = resp.result as Record<string, unknown> | undefined;
+    const agentInfo = initResult?.agentInfo as { name?: string; title?: string; version?: string } | undefined;
+    if (agentInfo?.name) {
+      this._agentInfo = {
+        name: agentInfo.name,
+        title: agentInfo.title,
+        version: agentInfo.version,
+      };
+    }
+
     this.rpc.notify('notifications/initialized');
     this.initialized = true;
 
@@ -207,6 +245,24 @@ export class AcpRunner {
         agent: this.card.name,
         error: resp.error.message,
       });
+    } else {
+      const info = this.sessionInfoMap.get(sessionId);
+      if (info) info.currentModeId = modeId;
+    }
+  }
+
+  async setModel(sessionId: string, modelId: string): Promise<void> {
+    await this.ensureRunning();
+    const resp = await this.rpc!.request('session/setModel', { sessionId, modelId }, 10_000);
+    if (resp.error) {
+      log({
+        event: 'acp_set_model_failed',
+        agent: this.card.name,
+        error: resp.error.message,
+      });
+    } else {
+      const info = this.sessionInfoMap.get(sessionId);
+      if (info) info.currentModelId = modelId;
     }
   }
 
@@ -219,9 +275,20 @@ export class AcpRunner {
     if (resp.error) {
       throw new Error(`session/new failed: ${resp.error.message}`);
     }
-    const result = resp.result as { sessionId: string };
+    const result = resp.result as {
+      sessionId: string;
+      modes?: { availableModes?: AcpModeInfo[]; currentModeId?: string };
+      models?: { availableModels?: AcpModelInfo[]; currentModelId?: string };
+    };
     const sessionId = result.sessionId;
     this.sessions.set(sessionId, { sessionId, turnCount: 0 });
+    this.sessionInfoMap.set(sessionId, {
+      sessionId,
+      availableModes: result.modes?.availableModes ?? [],
+      currentModeId: result.modes?.currentModeId ?? 'default',
+      availableModels: result.models?.availableModels ?? [],
+      currentModelId: result.models?.currentModelId ?? 'unknown',
+    });
     log({
       event: 'acp_session_created',
       agent: this.card.name,
@@ -311,6 +378,14 @@ export class AcpRunner {
     }
   }
 
+  get agentInfo(): AcpAgentInfo | null {
+    return this._agentInfo;
+  }
+
+  getSessionInfo(sessionId: string): AcpSessionInfo | undefined {
+    return this.sessionInfoMap.get(sessionId);
+  }
+
   async closeSession(sessionId: string): Promise<void> {
     if (!this.rpc || !this.initialized) return;
     try {
@@ -319,6 +394,7 @@ export class AcpRunner {
       // best effort — agent may have already closed it
     }
     this.sessions.delete(sessionId);
+    this.sessionInfoMap.delete(sessionId);
   }
 
   getSession(sessionId: string): AcpSession | undefined {

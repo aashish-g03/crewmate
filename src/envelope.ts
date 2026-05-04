@@ -51,6 +51,8 @@ export const TaskRequest = z
     ttlMs: z.number().int().positive().optional(),
     /** Agent mode to set for this task (e.g. plan, autoEdit, yolo). ACP-only. */
     mode: z.string().optional(),
+    /** Model to use for this task (e.g. gemini-2.5-pro). ACP-only. */
+    model: z.string().optional(),
   })
   .refine(
     (v) => !(v.newContext && v.contextId),

@@ -206,6 +206,9 @@ async function main(): Promise<void> {
     if (req.mode) {
       await acpRunner.setMode(sessionId, req.mode);
     }
+    if (req.model) {
+      await acpRunner.setModel(sessionId, req.model);
+    }
 
     const timeoutMs = req.timeoutMs ?? cfg.timeoutMs;
     const maxRetries = cfg.maxRetries ?? 2;

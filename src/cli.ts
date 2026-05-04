@@ -59,7 +59,7 @@ Usage:
   crewmate up --all [--workers=N]                    Start every ready agent's pool in parallel
   crewmate send <agent> <prompt> [--timeout=ms] [--cwd=path]
                             [--context=<id> | --new-context [--owner-hint=<tag>] [--ttl-ms=N]]
-                            [--mode=<plan|autoEdit|yolo>]
+                            [--mode=<plan|autoEdit|yolo>] [--model=<modelId>]
                                                      Drop a task and wait for a TaskResult JSON
   crewmate cancel <agent> <taskId>                   Write a cancel sentinel
   crewmate status [<agent>]                          Show queue depth per agent
@@ -162,6 +162,7 @@ async function main(): Promise<void> {
           : undefined;
       const ttlMs = parsePositiveInt(flags['ttl-ms'], 'ttl-ms');
       const mode = typeof flags.mode === 'string' ? flags.mode : undefined;
+      const model = typeof flags.model === 'string' ? flags.model : undefined;
       await cmdSend(positional[0], positional[1], {
         timeoutMs,
         cwd,
@@ -170,6 +171,7 @@ async function main(): Promise<void> {
         ownerHint,
         ttlMs,
         mode,
+        model,
       });
       return;
     }
