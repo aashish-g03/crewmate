@@ -243,7 +243,11 @@ export class AcpRunner {
       aborted = true;
       this.rpc?.notify('notifications/cancel', { sessionId });
     };
-    opts?.signal?.addEventListener('abort', onAbort, { once: true });
+    if (opts?.signal?.aborted) {
+      onAbort();
+    } else {
+      opts?.signal?.addEventListener('abort', onAbort, { once: true });
+    }
 
     const stderrStart = this.stderrChunks.length;
     this.streamedContent = [];
