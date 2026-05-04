@@ -240,6 +240,8 @@ async function main(): Promise<void> {
         durationMs: runRes.durationMs,
         exitCode: runRes.exitCode,
         stdoutBytes: Buffer.byteLength(runRes.stdout, 'utf8'),
+        inputTokens: runRes.inputTokens,
+        outputTokens: runRes.outputTokens,
       },
       completedAt: new Date().toISOString(),
       contextId: isNewContext ? sessionId : (existingContextId ?? null),

@@ -71,6 +71,8 @@ export const TaskResult = z.object({
     durationMs: z.number(),
     exitCode: z.number().nullable(),
     stdoutBytes: z.number(),
+    inputTokens: z.number().optional(),
+    outputTokens: z.number().optional(),
   }),
   completedAt: z.string().datetime(),
 

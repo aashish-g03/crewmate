@@ -164,8 +164,12 @@ export async function cmdSend(
         result.contextId && result.turnNumber !== undefined
           ? ` (context: ${result.contextId}, turn ${result.turnNumber})`
           : '';
+      const tokenSuffix =
+        result.usage.inputTokens !== undefined
+          ? ` (${result.usage.inputTokens} in / ${result.usage.outputTokens ?? 0} out tokens)`
+          : '';
       process.stderr.write(
-        `[crewmate] task ${taskId} → ${result.status} in ${ms}ms${ctxSuffix}\n`
+        `[crewmate] task ${taskId} → ${result.status} in ${ms}ms${ctxSuffix}${tokenSuffix}\n`
       );
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
       process.exit(result.status === 'completed' ? 0 : 1);

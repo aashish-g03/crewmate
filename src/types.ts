@@ -9,6 +9,8 @@ export interface RunnerResult {
   durationMs: number;
   /** Filled in if the run was aborted via signal or timed out. */
   hint?: 'aborted' | 'timeout';
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface RunnerOptions {

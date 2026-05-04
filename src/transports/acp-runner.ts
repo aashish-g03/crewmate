@@ -245,6 +245,10 @@ export class AcpRunner {
 
       const content = this.streamedContent.join('');
 
+      const meta = (resp.result as Record<string, unknown>)?._meta as Record<string, unknown> | undefined;
+      const quota = meta?.quota as Record<string, unknown> | undefined;
+      const tokenCount = quota?.token_count as { input_tokens?: number; output_tokens?: number } | undefined;
+
       const session = this.sessions.get(sessionId);
       if (session) session.turnCount++;
 
@@ -253,6 +257,8 @@ export class AcpRunner {
         stdout: content,
         stderr: this.stderrChunks.slice(stderrStart).join(''),
         durationMs: Date.now() - startedAt,
+        inputTokens: tokenCount?.input_tokens,
+        outputTokens: tokenCount?.output_tokens,
       };
     } catch (err) {
       return {
@@ -285,6 +291,14 @@ export class AcpRunner {
     if (!this.proc) return;
     this.rpc?.cancelAll('shutdown');
 
+    // Close all sessions before killing the process
+    for (const sid of this.sessions.keys()) {
+      try {
+        this.rpc?.notify('session/close', { sessionId: sid });
+      } catch { /* shutting down */ }
+    }
+    this.sessions.clear();
+
     try {
       this.proc.kill('SIGTERM');
     } catch {
@@ -311,7 +325,6 @@ export class AcpRunner {
     this.proc = null;
     this.rpc = null;
     this.initialized = false;
-    this.sessions.clear();
   }
 
   get alive(): boolean {
