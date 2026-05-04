@@ -55,19 +55,25 @@ Surface `.result` to your parent. Include: agent name, duration, token count.
 
 If `.status != "completed"`, show `.error` and let your parent decide next steps. Do NOT retry or attempt the task yourself.
 
-### Step 4: If parent wants multiple workers
+### Step 4: Multiple tasks
 
-Run them **sequentially** (one after another), NOT in parallel:
+You can dispatch multiple tasks to the **same worker** or **different workers**. The worker pool auto-scales — when tasks queue up, new workers spawn automatically (up to 5 per agent).
 
+**Same worker, different tasks** — run sequentially:
 ```bash
-# First: gemini
-crewmate send gemini-worker "Audit src/ for security issues" --timeout=600000
-
-# Then: codex (after gemini finishes)
-crewmate send codex-worker "Review src/ for code quality issues" --timeout=600000
+crewmate send gemini-worker "Audit src/transports/ for security issues" --timeout=600000
+crewmate send gemini-worker "Audit src/commands/ for input validation" --timeout=600000
 ```
 
-Present each result as it arrives. Consolidate at the end.
+**Different workers for cross-model verification** — run sequentially:
+```bash
+crewmate send gemini-worker "Audit src/ for security issues" --timeout=600000
+crewmate send codex-worker "Audit src/ for code quality issues" --timeout=600000
+```
+
+Present each result as it arrives. Consolidate findings at the end.
+
+**For the parent orchestrator**: You can ask crewmate to split work across agents. Example: "audit the codebase — use gemini for security and codex for code quality". Crewmate will dispatch to each sequentially and consolidate.
 
 ## What NOT to do
 

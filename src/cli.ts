@@ -55,7 +55,7 @@ Usage:
   crewmate init                                      Create ~/.crewmate and seed built-in agents
   crewmate doctor [--json]                           Report which agents have their CLI binary ready
   crewmate list                                      List initialized agents (with readiness)
-  crewmate up <agent> [--workers=N]                  Start a supervised pool (blocking)
+  crewmate up <agent> [--workers=N]                  Start a supervised pool (auto-scales up to maxWorkers)
   crewmate up --all [--workers=N]                    Start every ready agent's pool in parallel
   crewmate send <agent> <prompt> [--timeout=ms] [--cwd=path]
                             [--context=<id> | --new-context [--owner-hint=<tag>] [--ttl-ms=N]]

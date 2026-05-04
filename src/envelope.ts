@@ -107,7 +107,8 @@ export const AgentCard = z
   .passthrough();
 
 export const AgentConfig = z.object({
-  poolSize: z.number().int().positive().default(3),
+  poolSize: z.number().int().positive().default(1),
+  maxWorkers: z.number().int().positive().default(5),
   timeoutMs: z.number().int().positive().default(300_000),
   maxRetries: z.number().int().min(0).default(2),
 });

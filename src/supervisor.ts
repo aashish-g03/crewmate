@@ -151,10 +151,11 @@ export async function runSupervisor(
     });
   }
 
-  const poolSize =
+  const minWorkers =
     opts.workersOverride && opts.workersOverride > 0
       ? opts.workersOverride
       : config.poolSize;
+  const maxWorkers = Math.max(minWorkers, config.maxWorkers ?? 5);
 
   const workerScript = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -240,21 +241,52 @@ export async function runSupervisor(
     });
   };
 
-  for (let i = 0; i < poolSize; i++) spawnOne(i);
+  for (let i = 0; i < minWorkers; i++) spawnOne(i);
 
   log({
     event: 'pool_started',
     agent: agentName,
-    poolSize: poolSize,
-    message: `Supervising ${poolSize} ${card.name} workers`,
+    poolSize: minWorkers,
+    message: `Supervising ${minWorkers}→${maxWorkers} ${card.name} workers (auto-scale)`,
   });
   process.stderr.write(
-    `[crewmate] pool up: ${agentName} x${poolSize} (model=${card.model})\n`
+    `[crewmate] pool up: ${agentName} x${minWorkers} (max ${maxWorkers}, model=${card.model})\n`
   );
+
+  // Auto-scale: check inbox depth every 2s, spawn more workers if tasks are queuing
+  let nextSlot = minWorkers;
+  const scaleInterval = setInterval(async () => {
+    if (shuttingDown) return;
+    if (pool.size >= maxWorkers) return;
+    try {
+      const inbox = inboxDir(agentName);
+      const entries = await fs.readdir(inbox);
+      const queued = entries.filter(f => f.endsWith('.task.json')).length;
+      if (queued > 0 && pool.size < maxWorkers) {
+        const toSpawn = Math.min(queued, maxWorkers - pool.size);
+        for (let i = 0; i < toSpawn; i++) {
+          spawnOne(nextSlot++);
+        }
+        log({
+          event: 'pool_scaled_up',
+          agent: agentName,
+          poolSize: pool.size,
+          message: `scaled to ${pool.size} workers (${queued} tasks queued)`,
+        });
+        process.stderr.write(
+          `[crewmate] auto-scaled to ${pool.size} workers (${queued} tasks queued)\n`
+        );
+      }
+    } catch {
+      // inbox not ready yet, skip
+    }
+  }, 2000);
+  scaleInterval.unref();
 
   const shutdown = async (sig: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
+    clearInterval(scaleInterval);
     log({ event: 'pool_stopped', agent: agentName, reason: sig });
     process.stderr.write(`[crewmate] shutting down (${sig})\n`);
 
