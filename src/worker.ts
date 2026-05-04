@@ -10,6 +10,7 @@ import {
   cancelSentinelPath,
   stdoutLogPath,
   stderrLogPath,
+  progressLogPath,
   inboxTaskPath,
   affinityRoot,
   ensureAgentTree,
@@ -105,8 +106,23 @@ async function main(): Promise<void> {
 
   const isAcp = card.transport === 'acp' && card.acpCommand && card.acpCommand.length > 0;
   let acpRunner: AcpRunner | null = null;
+  let currentProgressFile: import('node:fs/promises').FileHandle | null = null;
   if (isAcp) {
     acpRunner = new AcpRunner(card);
+    acpRunner.onProgress((event) => {
+      let line = '';
+      if (event.type === 'tool_start') {
+        const loc = event.path ? ` (${event.path})` : '';
+        line = `▶ ${event.kind ?? 'tool'}: ${event.title ?? 'unknown'}${loc}\n`;
+      } else if (event.type === 'tool_done') {
+        line = `✓ ${event.kind ?? 'tool'}: ${event.title ?? 'done'}\n`;
+      } else if (event.type === 'chunk') {
+        return; // chunks go to stdout, not progress
+      }
+      if (line && currentProgressFile) {
+        currentProgressFile.write(line).catch(() => {});
+      }
+    });
     try {
       await acpRunner.ensureRunning();
       log({ event: 'acp_worker_ready', agent: AGENT_NAME, pid });
@@ -171,6 +187,12 @@ async function main(): Promise<void> {
       }
     }
 
+    // Open progress log for this task so the sender can tail tool calls
+    try {
+      await fs.mkdir(path.dirname(progressLogPath(AGENT_NAME, taskId)), { recursive: true });
+      currentProgressFile = await fs.open(progressLogPath(AGENT_NAME, taskId), 'a');
+    } catch { /* best effort */ }
+
     let sessionId: string;
     const isNewContext = req.newContext;
     const existingContextId = req.contextId;
@@ -201,6 +223,11 @@ async function main(): Promise<void> {
     }
 
     const session = acpRunner.getSession(sessionId);
+
+    if (currentProgressFile) {
+      await currentProgressFile.close().catch(() => {});
+      currentProgressFile = null;
+    }
 
     return {
       taskId,

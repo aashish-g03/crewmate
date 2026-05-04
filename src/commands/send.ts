@@ -9,6 +9,7 @@ import {
   homeDir,
   stdoutLogPath,
   stderrLogPath,
+  progressLogPath,
 } from '../paths.ts';
 import { writeTaskRequest, readTaskResult } from '../transports/mailbox.ts';
 import { log } from '../logger.ts';
@@ -144,14 +145,17 @@ export async function cmdSend(
   let lastHeartbeatAt = 0;
   let stdoutOffset = 0;
   let stderrOffset = 0;
+  let progressOffset = 0;
   const outLogPath = stdoutLogPath(agent, taskId);
   const errLogPath = stderrLogPath(agent, taskId);
+  const progLogPath = progressLogPath(agent, taskId);
 
   while (Date.now() < deadline) {
     // 1. Result ready?
     try {
       await fs.access(resultPath);
       // Flush any remaining output before returning the result.
+      await streamWorkerChunk(progLogPath, progressOffset, `${agent}:tool`);
       await streamWorkerChunk(errLogPath, stderrOffset, `${agent}:process`);
       await streamWorkerChunk(outLogPath, stdoutOffset, agent);
       const result = await readTaskResult(resultPath);
@@ -180,10 +184,9 @@ export async function cmdSend(
       }
     }
 
-    // 3. Stream live worker output — tail both log files and emit new chunks.
-    //    stderr = process visibility (what tools gemini is calling, files read, errors)
-    //    stdout = result visibility (the actual response text arriving)
+    // 3. Stream live worker output — tail log files and emit new chunks.
     if (claimedPid) {
+      progressOffset = await streamWorkerChunk(progLogPath, progressOffset, `${agent}:tool`);
       stderrOffset = await streamWorkerChunk(errLogPath, stderrOffset, `${agent}:process`);
       stdoutOffset = await streamWorkerChunk(outLogPath, stdoutOffset, agent);
     }

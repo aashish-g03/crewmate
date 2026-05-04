@@ -102,6 +102,10 @@ export function stderrLogPath(name: string, taskId: string): string {
   return path.join(logsDir(name), `${taskId}.stderr.log`);
 }
 
+export function progressLogPath(name: string, taskId: string): string {
+  return path.join(logsDir(name), `${taskId}.progress.log`);
+}
+
 /** Ensure all standard subdirs for an agent exist. */
 export async function ensureAgentTree(name: string): Promise<void> {
   await fs.mkdir(agentDir(name), { recursive: true });

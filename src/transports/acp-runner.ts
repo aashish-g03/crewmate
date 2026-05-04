@@ -14,6 +14,17 @@ interface AcpSession {
   turnCount: number;
 }
 
+export interface AcpProgressEvent {
+  type: 'thinking' | 'tool_start' | 'tool_done' | 'chunk' | 'info';
+  tool?: string;
+  title?: string;
+  kind?: string;
+  path?: string;
+  text?: string;
+}
+
+export type AcpProgressHandler = (event: AcpProgressEvent) => void;
+
 export class AcpRunner {
   private proc: Subprocess<'pipe', 'pipe', 'pipe'> | null = null;
   private rpc: JsonRpcClient | null = null;
@@ -24,10 +35,15 @@ export class AcpRunner {
   private cwd: string | undefined;
   private streamedContent: string[] = [];
   private spawning: Promise<void> | null = null;
+  private progressHandler: AcpProgressHandler | null = null;
 
   constructor(card: AgentCard, opts?: { cwd?: string }) {
     this.card = card;
     this.cwd = opts?.cwd;
+  }
+
+  onProgress(handler: AcpProgressHandler): void {
+    this.progressHandler = handler;
   }
 
   async ensureRunning(): Promise<void> {
@@ -62,10 +78,27 @@ export class AcpRunner {
 
     this.rpc.onNotification((_method, params) => {
       const update = params.update as Record<string, unknown> | undefined;
-      if (update?.sessionUpdate === 'agent_message_chunk') {
+      if (!update) return;
+      const updateType = update.sessionUpdate as string | undefined;
+
+      if (updateType === 'agent_message_chunk') {
         const content = update.content as { type?: string; text?: string } | undefined;
         if (content?.type === 'text' && content.text) {
           this.streamedContent.push(content.text);
+          this.progressHandler?.({ type: 'chunk', text: content.text });
+        }
+      } else if (updateType === 'tool_call') {
+        const title = update.title as string | undefined;
+        const kind = update.kind as string | undefined;
+        const locations = update.locations as Array<{ path?: string }> | undefined;
+        const path = locations?.[0]?.path;
+        this.progressHandler?.({ type: 'tool_start', title, kind, path });
+      } else if (updateType === 'tool_call_update') {
+        const title = update.title as string | undefined;
+        const kind = update.kind as string | undefined;
+        const status = update.status as string | undefined;
+        if (status === 'completed') {
+          this.progressHandler?.({ type: 'tool_done', title, kind });
         }
       }
     });
