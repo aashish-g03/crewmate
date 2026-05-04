@@ -13,6 +13,7 @@ interface AgentHealth {
   name: string;
   model: string;
   binary: string;
+  transport: string;
   ready: boolean;
   reason?: string;
   setupHint?: string;
@@ -30,6 +31,7 @@ export async function probeAll(): Promise<AgentHealth[]> {
         name: card.name,
         model: card.model,
         binary: bin,
+        transport: card.transport ?? 'spawn',
         ready,
         reason: ready ? undefined : `binary not found in PATH: ${bin}`,
         setupHint: card.setupHint,
@@ -39,6 +41,7 @@ export async function probeAll(): Promise<AgentHealth[]> {
         name,
         model: 'unknown',
         binary: '?',
+        transport: 'unknown',
         ready: false,
         reason: `agent-card.json missing or invalid: ${(err as Error).message}`,
       });
@@ -62,19 +65,20 @@ export async function cmdDoctor(opts: { json?: boolean } = {}): Promise<void> {
 
   const wName = Math.max(4, ...rows.map((r) => r.name.length));
   const wBin = Math.max(6, ...rows.map((r) => r.binary.length));
+  const wTransport = Math.max(9, ...rows.map((r) => r.transport.length));
 
   process.stdout.write(
-    `${'NAME'.padEnd(wName)}  ${'BINARY'.padEnd(wBin)}  STATUS\n`
+    `${'NAME'.padEnd(wName)}  ${'BINARY'.padEnd(wBin)}  ${'TRANSPORT'.padEnd(wTransport)}  STATUS\n`
   );
   process.stdout.write(
-    `${'-'.repeat(wName)}  ${'-'.repeat(wBin)}  ------\n`
+    `${'-'.repeat(wName)}  ${'-'.repeat(wBin)}  ${'-'.repeat(wTransport)}  ------\n`
   );
   for (const r of rows) {
     const status = r.ready
       ? 'ready'
       : `MISSING (${r.reason ?? 'unknown'})`;
     process.stdout.write(
-      `${r.name.padEnd(wName)}  ${r.binary.padEnd(wBin)}  ${status}\n`
+      `${r.name.padEnd(wName)}  ${r.binary.padEnd(wBin)}  ${r.transport.padEnd(wTransport)}  ${status}\n`
     );
   }
 

@@ -16,6 +16,7 @@ export async function cmdList(): Promise<void> {
   interface Row {
     name: string;
     model: string;
+    transport: string;
     status: string;
     strengths: string;
   }
@@ -28,6 +29,7 @@ export async function cmdList(): Promise<void> {
       rows.push({
         name: card.name,
         model: card.model,
+        transport: card.transport ?? 'spawn',
         status: ready ? 'ready' : `missing(${bin})`,
         strengths: card.strengths.join(', '),
       });
@@ -43,17 +45,18 @@ export async function cmdList(): Promise<void> {
 
   const wName = Math.max(4, ...rows.map((r) => r.name.length));
   const wModel = Math.max(5, ...rows.map((r) => r.model.length));
+  const wTrans = Math.max(9, ...rows.map((r) => r.transport.length));
   const wStatus = Math.max(6, ...rows.map((r) => r.status.length));
   const wStr = Math.max(9, ...rows.map((r) => r.strengths.length));
 
-  const sep = `${'-'.repeat(wName)}  ${'-'.repeat(wModel)}  ${'-'.repeat(wStatus)}  ${'-'.repeat(wStr)}`;
+  const sep = `${'-'.repeat(wName)}  ${'-'.repeat(wModel)}  ${'-'.repeat(wTrans)}  ${'-'.repeat(wStatus)}  ${'-'.repeat(wStr)}`;
   process.stdout.write(
-    `${'NAME'.padEnd(wName)}  ${'MODEL'.padEnd(wModel)}  ${'STATUS'.padEnd(wStatus)}  ${'STRENGTHS'.padEnd(wStr)}\n`
+    `${'NAME'.padEnd(wName)}  ${'MODEL'.padEnd(wModel)}  ${'TRANSPORT'.padEnd(wTrans)}  ${'STATUS'.padEnd(wStatus)}  ${'STRENGTHS'.padEnd(wStr)}\n`
   );
   process.stdout.write(sep + '\n');
   for (const r of rows) {
     process.stdout.write(
-      `${r.name.padEnd(wName)}  ${r.model.padEnd(wModel)}  ${r.status.padEnd(wStatus)}  ${r.strengths.padEnd(wStr)}\n`
+      `${r.name.padEnd(wName)}  ${r.model.padEnd(wModel)}  ${r.transport.padEnd(wTrans)}  ${r.status.padEnd(wStatus)}  ${r.strengths.padEnd(wStr)}\n`
     );
   }
 }

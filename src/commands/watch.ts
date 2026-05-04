@@ -16,7 +16,7 @@ import { homeDir } from '../paths.ts';
  * `[<agent>/<taskId>:<stream>]` prefix. No external `tail` binary required.
  */
 
-const LOG_RE = /\/([^/]+)\/logs\/([0-9a-fA-F-]+)\.(stdout|stderr)\.log$/;
+const LOG_RE = /\/([^/]+)\/logs\/([0-9a-fA-F-]+)\.(stdout|stderr|progress)\.log$/;
 
 function uuidish(s: string): boolean {
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(

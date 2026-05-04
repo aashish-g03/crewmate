@@ -75,4 +75,5 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
 export const DEFAULT_AGENT_CONFIG = {
   poolSize: 3,
   timeoutMs: 300_000,
+  maxRetries: 2,
 } as const;

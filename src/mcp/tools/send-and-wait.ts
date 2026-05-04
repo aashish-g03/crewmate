@@ -55,6 +55,10 @@ export const sendAndWaitInputShape = {
     .max(64)
     .optional()
     .describe('Free-form label (≤64 chars) stored on the new context. Only meaningful when `newContext: true`.'),
+  mode: z
+    .string()
+    .optional()
+    .describe('Agent mode for ACP workers (e.g. plan, autoEdit, yolo). Ignored by spawn workers.'),
 };
 
 const HEARTBEAT_MS = 5_000;
@@ -68,6 +72,7 @@ export async function handleSendAndWait(
     contextId?: string;
     newContext?: boolean;
     ownerHint?: string;
+    mode?: string;
   },
   extra: McpExtra
 ): Promise<ToolReturn> {
@@ -110,6 +115,7 @@ export async function handleSendAndWait(
     ...(args.contextId !== undefined ? { contextId: args.contextId } : {}),
     ...(args.newContext === true ? { newContext: true } : {}),
     ...(args.ownerHint !== undefined ? { ownerHint: args.ownerHint } : {}),
+    ...(args.mode !== undefined ? { mode: args.mode } : {}),
   });
   log({ event: 'mcp_tool_call', agent: args.agent, taskId, message: 'send_and_wait queued' });
 
