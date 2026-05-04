@@ -219,6 +219,9 @@ export class AcpRunner {
         // stream closed
       }
       this.initialized = false;
+      this.rpc?.cancelAll('ACP process died');
+      this.sessions.clear();
+      this.sessionInfoMap.clear();
     })();
   }
 

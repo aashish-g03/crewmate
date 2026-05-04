@@ -904,14 +904,15 @@ async function main(): Promise<void> {
     entry.abort.abort();
   };
 
-  // Inbox watcher: claim new tasks
+  // Inbox watcher: claim new tasks (serialized to prevent concurrent ACP corruption)
+  let taskQueue: Promise<void> = Promise.resolve();
   const inboxWatcher = chokidar.watch(inboxDir(AGENT_NAME), {
     ignoreInitial: false,
     awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 25 },
     depth: 0,
   });
   inboxWatcher.on('add', (p) => {
-    void handleClaim(p);
+    taskQueue = taskQueue.then(() => handleClaim(p)).catch(() => {});
   });
 
   // Cancel watcher: abort in-flight tasks

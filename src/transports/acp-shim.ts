@@ -36,6 +36,7 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>();
+const activeProcs = new Map<string, ReturnType<typeof Bun.spawn>>();
 let nextSessionNum = 1;
 let initialized = false;
 
@@ -140,12 +141,14 @@ async function handleRequest(id: number | string, method: string, params: Record
         fullPrompt = `This is turn ${session.turns.length + 1} of a continuing conversation. Prior turns:\n\n${history}\n\nCurrent turn:\nUser: ${promptText}`;
       }
 
+      const toolCallId = `cli-${session.turns.length + 1}-${Date.now()}`;
+
       // Notify: tool_call for the CLI invocation
       sendNotification('session/update', {
         sessionId,
         update: {
           sessionUpdate: 'tool_call',
-          toolCallId: `cli-${Date.now()}`,
+          toolCallId,
           status: 'in_progress',
           title: `${shimBinary} ${shimArgs.filter(a => a !== '{prompt}').join(' ')}`.trim(),
           kind: 'command',
@@ -168,20 +171,24 @@ async function handleRequest(id: number | string, method: string, params: Record
           env: { ...process.env },
         });
 
+        // Track active process for cancellation
+        activeProcs.set(sessionId, proc);
+
         const [stdout, stderr, exitCode] = await Promise.all([
           drainStream(proc.stdout),
           drainStream(proc.stderr),
           proc.exited,
         ]);
 
+        activeProcs.delete(sessionId);
         const durationMs = Date.now() - startMs;
 
-        // Notify: tool_call done
+        // Notify: tool_call done (same toolCallId)
         sendNotification('session/update', {
           sessionId,
           update: {
             sessionUpdate: 'tool_call_update',
-            toolCallId: `cli-${Date.now()}`,
+            toolCallId,
             status: 'completed',
             title: shimBinary,
             kind: 'command',
@@ -264,12 +271,23 @@ async function handleRequest(id: number | string, method: string, params: Record
   }
 }
 
-function handleNotification(method: string, _params: Record<string, unknown>): void {
+function handleNotification(method: string, params: Record<string, unknown>): void {
   if (method === 'notifications/initialized') {
     initialized = true;
     process.stderr.write(`[acp-shim] initialized for ${shimBinary}\n`);
   } else if (method === 'notifications/cancel') {
-    process.stderr.write(`[acp-shim] cancel received\n`);
+    const sessionId = params.sessionId as string | undefined;
+    process.stderr.write(`[acp-shim] cancel received for session=${sessionId}\n`);
+    if (sessionId) {
+      const proc = activeProcs.get(sessionId);
+      if (proc) {
+        try { proc.kill('SIGTERM'); } catch { /* already exited */ }
+        setTimeout(() => {
+          try { proc.kill('SIGKILL'); } catch { /* already exited */ }
+        }, 2000).unref();
+        activeProcs.delete(sessionId);
+      }
+    }
   }
 }
 
