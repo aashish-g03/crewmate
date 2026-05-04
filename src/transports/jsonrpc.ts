@@ -28,6 +28,11 @@ type PendingRequest = {
 
 export type NotificationHandler = (method: string, params: Record<string, unknown>) => void;
 
+export type RequestHandler = (
+  method: string,
+  params: Record<string, unknown>
+) => Promise<{ result?: unknown; error?: { code: number; message: string } }>;
+
 export class JsonRpcClient {
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
@@ -35,6 +40,7 @@ export class JsonRpcClient {
   private writeFn: (data: string) => void;
   private defaultTimeoutMs: number;
   private notificationHandler: NotificationHandler | null = null;
+  private requestHandler: RequestHandler | null = null;
 
   constructor(opts: {
     write: (data: string) => void;
@@ -46,6 +52,17 @@ export class JsonRpcClient {
 
   onNotification(handler: NotificationHandler): void {
     this.notificationHandler = handler;
+  }
+
+  onRequest(handler: RequestHandler): void {
+    this.requestHandler = handler;
+  }
+
+  private respond(id: number | string, payload: { result?: unknown; error?: { code: number; message: string } }): void {
+    const resp: Record<string, unknown> = { jsonrpc: '2.0', id };
+    if (payload.error) resp.error = payload.error;
+    else resp.result = payload.result ?? null;
+    this.writeFn(JSON.stringify(resp) + '\n');
   }
 
   feed(chunk: string): void {
@@ -68,6 +85,14 @@ export class JsonRpcClient {
         p.resolve(msg as unknown as JsonRpcResponse);
       } else if (msg.method !== undefined && msg.id === undefined && this.notificationHandler) {
         this.notificationHandler(msg.method as string, (msg.params ?? {}) as Record<string, unknown>);
+      } else if (msg.method !== undefined && msg.id !== undefined && this.requestHandler) {
+        const reqId = msg.id as number | string;
+        const method = msg.method as string;
+        const params = (msg.params ?? {}) as Record<string, unknown>;
+        void this.requestHandler(method, params).then(
+          (result) => this.respond(reqId, result),
+          (err) => this.respond(reqId, { error: { code: -32603, message: (err as Error).message } })
+        );
       }
     }
   }

@@ -103,6 +103,28 @@ export class AcpRunner {
       }
     });
 
+    this.rpc.onRequest(async (method, params) => {
+      if (method === 'textDocument/read' || method === 'resources/readTextFile' || method === 'readTextFile') {
+        const filePath = params.path as string | undefined;
+        if (!filePath) {
+          return { error: { code: -32602, message: 'Missing path parameter' } };
+        }
+        try {
+          const fs = await import('node:fs/promises');
+          const content = await fs.readFile(filePath, 'utf8');
+          return { result: { content } };
+        } catch (err) {
+          return { error: { code: -32603, message: `File read failed: ${(err as Error).message}` } };
+        }
+      }
+
+      if (method === 'textDocument/write' || method === 'resources/writeTextFile' || method === 'writeTextFile') {
+        return { error: { code: -32601, message: 'Write operations not permitted (read-only worker)' } };
+      }
+
+      return { error: { code: -32601, message: `Method not found: ${method}` } };
+    });
+
     this.drainStdout();
     this.drainStderr();
 
