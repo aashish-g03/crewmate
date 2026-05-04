@@ -16,6 +16,9 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
   // approval (= hang in headless mode = safe fail). `plan` mode was too
   // restrictive — it blocked ALL tool use including file reads, making gemini
   // useless for the codebase-audit use case it exists for.
+  // `--skip-trust` bypasses Gemini's workspace trust gate — headless workers
+  // can't answer interactive trust prompts, and the user already trusts the
+  // workspace by supplying --cwd to `crewmate send`.
   'gemini-worker': {
     name: 'gemini-worker',
     description:
@@ -27,7 +30,14 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
       'cross-file verification',
       'hallucination check',
     ],
-    cliCommand: ['gemini', '-p', '{prompt}', '--approval-mode', 'auto_edit'],
+    cliCommand: [
+      'gemini',
+      '-p',
+      '{prompt}',
+      '--approval-mode',
+      'auto_edit',
+      '--skip-trust',
+    ],
   },
   'kimi-worker': {
     name: 'kimi-worker',
