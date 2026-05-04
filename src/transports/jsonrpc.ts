@@ -26,12 +26,15 @@ type PendingRequest = {
   timer: ReturnType<typeof setTimeout>;
 };
 
+export type NotificationHandler = (method: string, params: Record<string, unknown>) => void;
+
 export class JsonRpcClient {
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
   private buffer = '';
   private writeFn: (data: string) => void;
   private defaultTimeoutMs: number;
+  private notificationHandler: NotificationHandler | null = null;
 
   constructor(opts: {
     write: (data: string) => void;
@@ -41,6 +44,10 @@ export class JsonRpcClient {
     this.defaultTimeoutMs = opts.defaultTimeoutMs ?? 60_000;
   }
 
+  onNotification(handler: NotificationHandler): void {
+    this.notificationHandler = handler;
+  }
+
   feed(chunk: string): void {
     this.buffer += chunk;
     let newlineIdx: number;
@@ -48,17 +55,19 @@ export class JsonRpcClient {
       const line = this.buffer.slice(0, newlineIdx).trim();
       this.buffer = this.buffer.slice(newlineIdx + 1);
       if (!line) continue;
-      let msg: JsonRpcResponse;
+      let msg: Record<string, unknown>;
       try {
-        msg = JSON.parse(line) as JsonRpcResponse;
+        msg = JSON.parse(line) as Record<string, unknown>;
       } catch {
         continue;
       }
-      if (msg.id !== undefined && this.pending.has(msg.id)) {
-        const p = this.pending.get(msg.id)!;
-        this.pending.delete(msg.id);
+      if (msg.id !== undefined && this.pending.has(msg.id as number)) {
+        const p = this.pending.get(msg.id as number)!;
+        this.pending.delete(msg.id as number);
         clearTimeout(p.timer);
-        p.resolve(msg);
+        p.resolve(msg as unknown as JsonRpcResponse);
+      } else if (msg.method !== undefined && msg.id === undefined && this.notificationHandler) {
+        this.notificationHandler(msg.method as string, (msg.params ?? {}) as Record<string, unknown>);
       }
     }
   }

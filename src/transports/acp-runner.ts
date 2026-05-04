@@ -22,6 +22,7 @@ export class AcpRunner {
   private stderrChunks: string[] = [];
   private card: AgentCard;
   private cwd: string | undefined;
+  private streamedContent: string[] = [];
 
   constructor(card: AgentCard, opts?: { cwd?: string }) {
     this.card = card;
@@ -56,15 +57,28 @@ export class AcpRunner {
       defaultTimeoutMs: REQUEST_TIMEOUT_MS,
     });
 
+    this.rpc.onNotification((_method, params) => {
+      const update = params.update as Record<string, unknown> | undefined;
+      if (update?.sessionUpdate === 'agent_message_chunk') {
+        const content = update.content as { type?: string; text?: string } | undefined;
+        if (content?.type === 'text' && content.text) {
+          this.streamedContent.push(content.text);
+        }
+      }
+    });
+
     this.drainStdout();
     this.drainStderr();
 
     const resp = await this.rpc.request(
       'initialize',
       {
-        protocolVersion: '1',
+        protocolVersion: 1,
         clientInfo: { name: 'crewmate', version: '0.2.0' },
-        clientCapabilities: {},
+        clientCapabilities: {
+          fs: { readTextFile: true, writeTextFile: true },
+          terminal: true,
+        },
       },
       INITIALIZE_TIMEOUT_MS,
     );
@@ -128,11 +142,12 @@ export class AcpRunner {
 
   async createSession(opts?: { cwd?: string }): Promise<string> {
     await this.ensureRunning();
-    const resp = await this.rpc!.request('sessions/create', {
-      ...(opts?.cwd ? { cwd: opts.cwd } : {}),
+    const resp = await this.rpc!.request('session/new', {
+      cwd: opts?.cwd ?? process.cwd(),
+      mcpServers: [],
     });
     if (resp.error) {
-      throw new Error(`sessions/create failed: ${resp.error.message}`);
+      throw new Error(`session/new failed: ${resp.error.message}`);
     }
     const result = resp.result as { sessionId: string };
     const sessionId = result.sessionId;
@@ -160,11 +175,15 @@ export class AcpRunner {
     opts?.signal?.addEventListener('abort', onAbort, { once: true });
 
     const stderrStart = this.stderrChunks.length;
+    this.streamedContent = [];
 
     try {
       const resp = await this.rpc!.request(
-        'sessions/message',
-        { sessionId, message: { role: 'user', content: prompt } },
+        'session/prompt',
+        {
+          sessionId,
+          prompt: [{ type: 'text', text: prompt }],
+        },
         opts?.timeoutMs ?? REQUEST_TIMEOUT_MS,
       );
 
@@ -187,10 +206,7 @@ export class AcpRunner {
         };
       }
 
-      const result = resp.result as {
-        message?: { content?: string };
-      };
-      const content = result?.message?.content ?? '';
+      const content = this.streamedContent.join('');
 
       const session = this.sessions.get(sessionId);
       if (session) session.turnCount++;
