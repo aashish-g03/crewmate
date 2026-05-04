@@ -19,7 +19,7 @@ Claude Code's internal Tier-2 subagent system (`SendMessageTool.ts`, `LocalAgent
 
 `crewmate` extends this idea across **process and vendor boundaries**. Each worker shim (`src/agents/*.ts`) is a thin wrapper that knows how to spawn a CLI binary, write a prompt to stdin, and read structured output back. The shim has no opinion about *what* the worker is good at — that opinion lives in:
 
-- `.claude/agents/mesh-router.md` — tells Claude Code when to delegate and to whom.
+- `.claude/agents/crewmate.md` — tells Claude Code when to delegate and to whom.
 - `.claude/agents/<worker>.md` — reference cards describing each worker's strengths.
 - This file — the human-readable team charter.
 
@@ -31,7 +31,7 @@ Putting role intelligence in shims would couple two things that should evolve in
 2. **Write the shim** in `src/agents/registry.ts`: register the binary, args, env, and any output post-processing.
 3. **Write the descriptor** at `.claude/agents/<name>.md` with `tools: []` frontmatter and a body covering: strengths, weaknesses, invocation, result shape. Use `gemini-worker.md` as a template.
 4. **Add a row to the team table above** so humans know when to reach for it.
-5. **Update `mesh-router.md`** with the new role in the "team" section and any decision-heuristic changes.
+5. **Update `crewmate.md`** with the new role in the "team" section and any decision-heuristic changes.
 6. **Materialize the dirs**: `crewmate init` reads the registry and creates `~/.crewmate/<name>/{inbox,outbox,config.json,card.json}`.
 7. **Validate**: extend `scripts/validate.sh` with a round-trip test for the new agent (or write `scripts/validate-<name>.sh` if it's heavyweight).
 
@@ -79,7 +79,7 @@ The `cliCommand` stays as a fallback. If ACP fails to initialize, the worker fal
 
 ## Triangulation example
 
-When a claim is load-bearing and you're uncertain, fan out to all three workers in parallel and reconcile. From `mesh-router`:
+When a claim is load-bearing and you're uncertain, fan out to all three workers in parallel and reconcile. From `crewmate`:
 
 ```bash
 PROMPT="Does the function applyEdit in src/tools/EditTool.ts mutate its input?"
@@ -134,11 +134,11 @@ v1.1 builds the per-turn prompt by **concatenating prior turn JSONs verbatim** a
 
 The trade-off is that token cost grows linearly with turn count. Orchestrators are expected to mint fresh contexts when topics shift, and the CLI emits stderr warnings as the concatenated prompt approaches 50K / 100K / 200K chars to make this visible.
 
-### Forward-compat with v2.0 ACP
+### ACP transport and context behavior
 
-The envelope additions (`contextId`, `turnNumber`) are deliberately the same shape v2.0 will use when we swap the spawn-per-task runner for an ACP (Agent Context Protocol) persistent runner. In v2.0, `contextId` becomes the ACP `sessionId` — a real session handle the worker process keeps in memory — instead of just a directory name. The wire format for orchestrators stays identical across the upgrade; what changes is what happens behind the mailbox.
+ACP agents maintain session state in-memory. The worker maps between crewmate context IDs (`ctx_...`) and ACP session IDs. The envelope shape (`contextId`, `turnNumber`) is identical regardless of whether the agent uses ACP or spawn transport, so orchestrators work the same way with both.
 
-This means orchestrators written against v1.1 contexts keep working under v2.0 without code changes. The directory-based concat is a deliberately humble first cut at the same surface.
+The disk-based context directory (`contexts/<contextId>/`) still exists for ACP agents -- the worker creates it for bookkeeping and turn persistence -- but the agent itself does not read concatenated prior turns from disk. Instead, the ACP session retains conversation state natively in the persistent child process.
 
 ### Operational notes
 

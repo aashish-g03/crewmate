@@ -6,7 +6,7 @@ import type { AgentCard } from '../envelope.ts';
 /**
  * Inspect every initialized agent and report whether its underlying CLI
  * binary is callable. Drives graceful degradation: callers like `up --all`
- * and the mesh-router subagent only target ready workers.
+ * and the crewmate subagent only target ready workers.
  */
 
 interface AgentHealth {

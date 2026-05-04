@@ -1,10 +1,10 @@
 ---
 name: gemini-worker
-description: Reference card for the Gemini CLI worker. Do NOT invoke this directly; mesh-router routes tasks to it via crewmate send.
+description: Reference card for the Gemini CLI worker. Do NOT invoke this directly; crewmate routes tasks to it via crewmate send.
 tools: []
 ---
 
-This file is a **reference card**, not an executable subagent. It documents what `gemini-worker` is so that `mesh-router` (and humans reading this repo) know when and how to delegate to it. The `tools: []` frontmatter is intentional — Claude Code should not pick this descriptor up and try to run it as a subagent.
+This file is a **reference card**, not an executable subagent. It documents what `gemini-worker` is so that `crewmate` (and humans reading this repo) know when and how to delegate to it. The `tools: []` frontmatter is intentional — Claude Code should not pick this descriptor up and try to run it as a subagent.
 
 ## What it is
 
@@ -22,7 +22,7 @@ A pool of supervised Gemini CLI processes managed by the `crewmate` mesh. Config
 - Read-only relative to the project. The worker cannot edit files, run your build, or commit.
 - Latency is non-trivial; budget 5–60s per call.
 
-## Invocation (from mesh-router or shell)
+## Invocation (from crewmate or shell)
 
 ```bash
 crewmate send gemini-worker "<your full prompt here>" --timeout=300000

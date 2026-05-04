@@ -14,3 +14,4 @@ scratch/
 .idea/
 *.tsbuildinfo
 *.txt
+.claude/worktrees/

@@ -32,7 +32,7 @@ layer. `crewmate` is that layer:
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) 1.1+ (`curl -fsSL https://bun.sh/install | bash`)
+- [Bun](https://bun.sh) 1.3+ (`curl -fsSL https://bun.sh/install | bash`)
 - At least one CLI agent installed and authenticated:
   - **Gemini CLI**: `npm i -g @google/gemini-cli` then `gemini` once to authenticate
   - **Kimi CLI** (optional): `uv tool install --python 3.13 kimi-cli` then `kimi` once to set model + API key
@@ -70,8 +70,8 @@ Two adapters — use one or both:
 ```bash
 # Option A: Bash subagent (always available, zero extra deps)
 crewmate install-claude-agent --global
-# → writes ~/.claude/agents/mesh-router.md
-# → any Claude Code session can now spawn the mesh-router subagent
+# → writes ~/.claude/agents/crewmate.md
+# → any Claude Code session can now spawn the crewmate subagent
 
 # Option B: MCP adapter (adds streaming progress + structured tools)
 claude mcp add crewmate -- crewmate mcp
@@ -82,7 +82,7 @@ claude mcp add crewmate -- crewmate mcp
 **Verify:**
 ```bash
 crewmate doctor                        # gemini-worker: ready
-ls ~/.claude/agents/mesh-router.md     # exists
+ls ~/.claude/agents/crewmate.md        # exists
 claude mcp list                        # shows crewmate (if MCP added)
 ```
 
@@ -100,7 +100,7 @@ crewmate send gemini-worker "Review auth flow" --model=gemini-2.5-pro
 crewmate send gemini-worker "List all exports" --mode=plan
 
 # Or let Claude Code delegate for you:
-# just ask Claude and mesh-router will route to the right worker.
+# just ask Claude and crewmate will route to the right worker.
 
 # Useful companions while a delegation runs:
 crewmate watch                         # tail per-task stdout/stderr + tool-call progress
@@ -118,7 +118,7 @@ See `crewmate --help` for the full command grid.
   log.jsonl                              # mesh-wide append-only NDJSON event log
   <agent>/
     agent-card.json                      # capability self-description
-    config.json                          # { poolSize: 3, timeoutMs: 300000 }
+    config.json                          # { poolSize: 1, timeoutMs: 300000 }
     inbox/<taskId>.task.json             # FIFO; workers race to claim via rename
     outbox/<taskId>.result.json          # results
     cancel/<taskId>                      # zero-byte sentinel for cancellation
@@ -159,7 +159,7 @@ the agent's response metadata). Absent for spawn agents.
 ## Concurrency model
 
 `crewmate up <agent>` reads `~/.crewmate/<agent>/config.json` for `poolSize`
-(default 3) and spawns N child processes via `Bun.spawn`. The parent
+(default 1, auto-scales to `maxWorkers` which defaults to 5) and spawns N child processes via `Bun.spawn`. The parent
 *supervises*: if a child exits unexpectedly it gets respawned after a 1 s
 backoff. SIGINT/SIGTERM propagates downward.
 
@@ -188,11 +188,11 @@ Cancellation rides a parallel chokidar watch on `cancel/`. When
 
 ## Built-in agents
 
-| name              | model  | transport | context  | strengths                                     |
-| ----------------- | ------ | --------- | -------- | --------------------------------------------- |
-| `gemini-worker`   | gemini | **ACP**   | 2 M      | large-codebase audit, hallucination check. Autonomous — reads files, uses tools, supports model/mode selection. |
-| `kimi-worker`     | kimi   | spawn     | 256 K    | deep reasoning, second opinion                |
-| `codex-worker`    | codex  | spawn     | 200 K    | OpenAI-family refactors, vendor diversity     |
+| name              | model  | transport    | context  | strengths                                     |
+| ----------------- | ------ | ------------ | -------- | --------------------------------------------- |
+| `gemini-worker`   | gemini | ACP (native) | 2 M      | large-codebase audit, hallucination check. Autonomous — reads files, uses tools. |
+| `kimi-worker`     | kimi   | ACP (shim)   | 256 K    | deep reasoning, second opinion                |
+| `codex-worker`    | codex  | ACP (shim)   | 200 K    | OpenAI-family refactors, vendor diversity     |
 
 Add your own by appending to `src/agents/registry.ts` and re-running
 `crewmate init`, or by hand-writing an `agent-card.json` under
@@ -214,39 +214,24 @@ crewmate send gemini-worker "audit src/auth/jwt.ts for token-expiry bugs" \
 ```
 
 Stdout is the `TaskResult` JSON; stderr streams progress (`queued → claimed
-→ <Ns elapsed> → completed`). Drop the bundled `mesh-router.md` subagent
-into Claude Code with one command:
+→ <Ns elapsed> → completed`). Drop the bundled subagent into Claude Code:
 
 ```bash
-crewmate install-claude-agent --global    # → ~/.claude/agents/mesh-router.md
+crewmate install-claude-agent --global    # → ~/.claude/agents/crewmate.md
 ```
 
-`mesh-router` runs `crewmate doctor --json` first, then only delegates to
-workers that report `ready === true`. If you have only Gemini installed it
-won't try to call Kimi or Codex.
+The crewmate agent runs `crewmate doctor --json` first, then only delegates
+to workers that report `ready === true`.
 
 ### Adapter 2 — MCP (Claude Code, Cursor, Zed)
-
-Run the bundled MCP server on stdio:
 
 ```bash
 claude mcp add crewmate -- crewmate mcp
 ```
 
-Tools exposed (v1.0 base): `crewmate_send_and_wait`, `crewmate_list_agents`,
-`crewmate_status`, `crewmate_cancel`. v1.1 adds five more for context
-management: `crewmate_new_context`, `crewmate_list_contexts`,
-`crewmate_show_context`, `crewmate_destroy_context`, and
-`crewmate_purge_archived` (the only permanent-delete tool — `destroy_context`
-only archives). `send_and_wait` emits MCP
-`notifications/progress` while the worker runs (queued, claimed, 5 s
-heartbeats), so the host UI shows live progress instead of a blank
-spinner. Cancellation from the host writes a `cancel/<taskId>` sentinel
-in the mailbox — workers honour it within ~50 ms.
-
-The Bash CLI and the MCP server are peer adapters: same `crewmate core`
-underneath, no functional difference, choose by what your environment
-prefers. A future A2A adapter would slot in the same way.
+The MCP server exposes 9 tools for structured delegation with streaming
+progress notifications. The Bash CLI and MCP server are peer adapters:
+same engine underneath.
 
 ## Worker behavior contract
 
@@ -275,7 +260,8 @@ Key capabilities:
 - **Retry**: transient failures (500, rate limit) auto-retry with exponential backoff
 
 ACP workers should NOT write files — the orchestrator (Claude Code) owns
-all mutations. File-write requests from the agent are rejected.
+all mutations. File-write requests from the agent are rejected. File reads
+are sandboxed to the project working directory.
 
 ## Persistent contexts (v1.1)
 
@@ -375,7 +361,7 @@ warnings as the concatenated prompt crosses 50K / 100K / 200K chars.
 
 See [`AGENTS.md`](./AGENTS.md#working-with-persistent-contexts) for the
 deeper "when to use" guide and the on-disk layout, and
-[`templates/mesh-router.md`](./templates/mesh-router.md) for the orchestrator
+[`templates/crewmate.md`](./templates/crewmate.md) for the orchestrator
 playbook.
 
 ## Design notes (Tier-2 inspiration)
