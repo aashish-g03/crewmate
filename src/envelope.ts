@@ -89,6 +89,8 @@ export const AgentCard = z
     contextWindow: z.number().int().positive(),
     strengths: z.array(z.string()),
     cliCommand: z.array(z.string()),
+    transport: z.enum(['spawn', 'acp']).default('spawn'),
+    acpCommand: z.array(z.string()).optional(),
     // Optional hint shown by `doctor`/`list` for binary-present-but-needs-config
     // cases that `which` can't detect (e.g. kimi installed but model not chosen).
     setupHint: z.string().optional(),
