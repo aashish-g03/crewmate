@@ -1,6 +1,6 @@
 ---
 name: mesh-router
-description: Delegates tasks to specialized CLI agents via the crewmate mesh. Use when work would benefit from a different model — large-context audits to Gemini, deep reasoning to Kimi, vendor diversity to Codex. Probes which workers are actually installed at runtime.
+description: "Delegates tasks to external AI agents (Gemini, Kimi, Codex) via the crewmate CLI mesh. Use when: (1) you need a large-context audit across 50+ files (Gemini has 2M context), (2) you want a second opinion from a different model, (3) you need cross-vendor verification on a claim. Workers are autonomous — gemini-worker can read files and use tools on its own, no need to paste file contents. Supports model selection (--model=gemini-2.5-pro), mode selection (--mode=plan), and persistent multi-turn sessions. Uses Bash CLI only — not MCP."
 tools: [Bash]
 ---
 

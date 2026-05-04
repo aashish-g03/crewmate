@@ -82,37 +82,13 @@ Agents with `transport: 'acp'` in their card use a persistent stdio connection i
 - `CREWMATE_HOME` env var overrides `~/.crewmate` for testing.
 - Agent registry is data-driven: transport logic in shims, role intelligence in `.claude/agents/*.md` prompt files. Keep these concerns separate.
 
-## Agent mesh delegation
+## Delegating to workers (for crewmate developers)
 
-Delegate work to external CLI agents for large-context reads, cross-vendor checks, or deep reasoning. Use the **mesh-router subagent** (Bash CLI) or **MCP tools** depending on what's installed.
-
-### Worker selection
-
-- **gemini-worker** (ACP): Autonomous agent with file access. Can read files, explore the codebase, use tools. Just describe what you need — don't paste file contents. 2M context.
-- **kimi-worker** (spawn): Prompt-and-response only. Include all context in the prompt. Deep reasoning, second opinions.
-- **codex-worker** (spawn): Prompt-and-response only. Include all context in the prompt. Vendor diversity, cross-vendor reconciliation.
-
-### Via Bash CLI (always available)
-
-If `mesh-router` subagent is installed (`~/.claude/agents/mesh-router.md`), spawn it to delegate. Or run directly:
+When working in this repo, you can test delegation via:
 
 ```bash
 crewmate doctor --json                     # discover ready workers
 crewmate send gemini-worker "<prompt>" --timeout=300000  # delegate
-crewmate send gemini-worker "<prompt>" --model=gemini-2.5-pro  # pick model
-crewmate send gemini-worker "<prompt>" --mode=plan  # read-only mode
 ```
 
-### Via MCP (only when crewmate MCP server is connected)
-
-If `crewmate` appears in your MCP tools, use `crewmate_send_and_wait` for structured delegation with streaming progress. If it's NOT connected, use the Bash CLI above — do NOT attempt to call MCP tool names.
-
-### When NOT to delegate
-
-- You need to **edit** files (workers can read but should not write — the orchestrator owns mutations).
-- The answer is already in your context.
-- Single-file questions you can answer instantly.
-
-### Persistent contexts
-
-For multi-turn work, pass `--new-context` on the first call, then `--context=<id>` on follow-ups. Workers remember prior turns.
+End-user delegation guidance lives in `templates/mesh-router.md` (the installed subagent) and the MCP tool descriptions in `src/mcp/`. Do not duplicate routing rules here — they belong in the agent template, not in CLAUDE.md.
