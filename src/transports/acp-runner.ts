@@ -4,6 +4,7 @@ import type { AgentCard } from '../envelope.ts';
 import type { RunnerResult } from '../types.ts';
 import { JsonRpcClient } from './jsonrpc.ts';
 import { log } from '../logger.ts';
+import path from 'node:path';
 
 const SIGKILL_GRACE_MS = 5000;
 const INITIALIZE_TIMEOUT_MS = 30_000;
@@ -137,9 +138,14 @@ export class AcpRunner {
         if (!filePath) {
           return { error: { code: -32602, message: 'Missing path parameter' } };
         }
+        const sandboxRoot = this.cwd ?? process.cwd();
+        const resolved = path.resolve(sandboxRoot, filePath);
+        if (!resolved.startsWith(sandboxRoot + path.sep) && resolved !== sandboxRoot) {
+          return { error: { code: -32403, message: `Path escapes project directory: ${filePath}` } };
+        }
         try {
-          const fs = await import('node:fs/promises');
-          const content = await fs.readFile(filePath, 'utf8');
+          const fsPromises = await import('node:fs/promises');
+          const content = await fsPromises.readFile(resolved, 'utf8');
           return { result: { content } };
         } catch (err) {
           return { error: { code: -32603, message: `File read failed: ${(err as Error).message}` } };
