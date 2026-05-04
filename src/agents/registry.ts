@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { AgentCard } from '../envelope.ts';
 
 /**
@@ -9,6 +11,13 @@ import type { AgentCard } from '../envelope.ts';
  * Adding a new agent is just a matter of appending to this map — the rest
  * of the runtime is fully data-driven from agent-card.json on disk.
  */
+
+const SHIM_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'transports',
+  'acp-shim.ts'
+);
 
 export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
   // Workers can't answer interactive approval prompts (stdin is the mailbox).
@@ -47,9 +56,9 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
     model: 'kimi',
     contextWindow: 256_000,
     strengths: ['deep reasoning', 'algorithmic problems', 'second opinion'],
-    // --plan = kimi's read-only mode. --quiet implies --print --final-message-only.
     cliCommand: ['kimi', '-p', '{prompt}', '--quiet', '--plan'],
-    transport: 'spawn',
+    transport: 'acp',
+    acpCommand: ['bun', SHIM_PATH, 'kimi', '-p', '{prompt}', '--quiet', '--plan'],
     setupHint:
       "If you see 'LLM not set' on first run: run `kimi` once interactively, pick a model, set the API key.",
   },
@@ -63,10 +72,9 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
       'OpenAI-family refactors',
       'cross-vendor reconciliation',
     ],
-    // codex exec is non-interactive. --skip-git-repo-check avoids the
-    // "not a git repo" prompt for tasks executed outside a repo.
     cliCommand: ['codex', 'exec', '--skip-git-repo-check', '{prompt}'],
-    transport: 'spawn',
+    transport: 'acp',
+    acpCommand: ['bun', SHIM_PATH, 'codex', 'exec', '--skip-git-repo-check', '{prompt}'],
     setupHint:
       'Codex CLI not installed. Install via `npm i -g @openai/codex` (or your preferred Codex CLI).',
   },
