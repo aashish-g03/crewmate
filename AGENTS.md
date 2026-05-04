@@ -114,4 +114,5 @@ This means orchestrators written against v1.1 contexts keep working under v2.0 w
 
 - `crewmate up <agent>` is a long-running supervisor. Start it manually or via `scripts/validate.sh`. Never start it from inside a subagent.
 - `crewmate send` is the only mutation a subagent should make against the mesh. It's bounded, idempotent at the protocol level, and always returns JSON.
-- Workers are read-only relative to this repo. They cannot edit files or run your build. If a task needs mutation, the architect (Claude Code) does it.
+- **ACP workers** (gemini-worker) are autonomous agents with file access — they can read files, explore the codebase, and use tools in the project directory. They should NOT write files; the orchestrator (Claude Code) owns all mutations.
+- **Spawn workers** (kimi-worker, codex-worker) are prompt-and-response only. They receive stdin, produce stdout, and have no file access. Include all context in the prompt.

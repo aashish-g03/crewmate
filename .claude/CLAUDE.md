@@ -90,15 +90,15 @@ When the `crewmate` MCP server is connected, you have 9 tools for delegating wor
 
 1. Call `crewmate_list_agents` first to discover which workers are ready.
 2. Pick the right worker:
-   - **gemini-worker**: Large-context reads (>50 files), codebase audits, hallucination checks. 2M context.
-   - **kimi-worker**: Deep reasoning, algorithmic problems, second opinions.
-   - **codex-worker**: Vendor diversity, GPT-family refactors, cross-vendor reconciliation.
-3. Call `crewmate_send_and_wait` with a **self-contained prompt** — the worker has no access to your conversation, files, or tools.
+   - **gemini-worker** (ACP): Autonomous agent with file access. Can read files, explore the codebase, use tools. Just describe what you need — don't paste file contents. 2M context.
+   - **kimi-worker** (spawn): Prompt-and-response only. Include all context in the prompt. Deep reasoning, second opinions.
+   - **codex-worker** (spawn): Prompt-and-response only. Include all context in the prompt. Vendor diversity, cross-vendor reconciliation.
+3. Call `crewmate_send_and_wait` with a clear prompt. ACP workers (gemini) can read files autonomously — just reference paths. Spawn workers (kimi, codex) need all context pasted inline.
 4. Parse the structured result. If `.status != "completed"`, surface `.error`.
 
 ### When NOT to delegate
 
-- You need to edit files (workers are read-only).
+- You need to **edit** files (workers can read but should not write — the orchestrator owns mutations).
 - The answer is already in your context.
 - Single-file questions you can answer instantly.
 

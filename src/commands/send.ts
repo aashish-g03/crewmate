@@ -86,7 +86,7 @@ export async function cmdSend(
     taskId,
     agent,
     prompt,
-    context: opts.cwd ? { cwd: opts.cwd } : undefined,
+    context: { cwd: opts.cwd ?? process.cwd() },
     timeoutMs: opts.timeoutMs,
     createdAt: new Date().toISOString(),
   };

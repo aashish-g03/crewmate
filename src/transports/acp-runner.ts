@@ -23,6 +23,7 @@ export class AcpRunner {
   private card: AgentCard;
   private cwd: string | undefined;
   private streamedContent: string[] = [];
+  private spawning: Promise<void> | null = null;
 
   constructor(card: AgentCard, opts?: { cwd?: string }) {
     this.card = card;
@@ -31,7 +32,9 @@ export class AcpRunner {
 
   async ensureRunning(): Promise<void> {
     if (this.proc && this.initialized) return;
-    await this.spawn();
+    if (this.spawning) return this.spawning;
+    this.spawning = this.spawn().finally(() => { this.spawning = null; });
+    return this.spawning;
   }
 
   private async spawn(): Promise<void> {
