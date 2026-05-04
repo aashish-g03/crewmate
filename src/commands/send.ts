@@ -68,6 +68,13 @@ export async function cmdSend(
     process.exit(2);
   }
 
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(agent)) {
+    process.stderr.write(
+      `[crewmate] invalid agent name: "${agent}" — must be lowercase alphanumeric with hyphens\n`
+    );
+    process.exit(2);
+  }
+
   // CLI-layer validation — the envelope refinement also catches mutual
   // exclusion, but failing here gives a clearer error before the envelope
   // is even built.

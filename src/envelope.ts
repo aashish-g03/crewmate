@@ -19,6 +19,10 @@ import { z } from 'zod';
  *   on version unless you need to reject something.
  */
 
+export const AgentNameSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]{0,63}$/, 'Agent name must be lowercase alphanumeric with hyphens, 1-64 chars');
+
 const ContextIdSchema = z
   .string()
   .regex(/^ctx_[a-z0-9]{8}$/, 'contextId must look like "ctx_<8 base32 chars>"');
@@ -27,7 +31,7 @@ export const TaskRequest = z
   .object({
     // v1 fields (unchanged)
     taskId: z.string().uuid(),
-    agent: z.string(),
+    agent: AgentNameSchema,
     prompt: z.string(),
     context: z
       .object({

@@ -30,7 +30,14 @@ export function logFile(): string {
   return path.join(homeDir(), 'log.jsonl');
 }
 
+function validateAgentName(name: string): void {
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) {
+    throw new Error(`Invalid agent name: "${name}" — must be lowercase alphanumeric with hyphens`);
+  }
+}
+
 export function agentDir(name: string): string {
+  validateAgentName(name);
   return path.join(homeDir(), name);
 }
 
