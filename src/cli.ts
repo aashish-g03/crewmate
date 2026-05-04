@@ -72,9 +72,9 @@ Usage:
   crewmate context purge --older-than=<duration> [--agent=<name>]
                                                      Permanently delete archived contexts
   crewmate install-claude-agent [--global|--project] [--force]
-                                                     Drop mesh-router.md into Claude Code's agents dir
+                                                     Drop crewmate.md into Claude Code's agents dir
   crewmate install-claude-agent --uninstall [--global|--project]
-                                                     Remove the installed mesh-router subagent
+                                                     Remove the installed crewmate subagent
   crewmate mcp                                       Run the MCP server on stdio (for \`claude mcp add\`)
 
 Environment:

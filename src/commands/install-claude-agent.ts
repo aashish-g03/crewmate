@@ -4,12 +4,12 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Copies the bundled `templates/mesh-router.md` into Claude Code's agents
+ * Copies the bundled `templates/crewmate.md` into Claude Code's agents
  * directory. Keeps the npm package responsible for *its own* installation —
  * the user never has to know where Claude Code looks for subagents.
  *
- *   --global   ~/.claude/agents/mesh-router.md      (default; available everywhere)
- *   --project  ./.claude/agents/mesh-router.md      (cwd-scoped only)
+ *   --global   ~/.claude/agents/crewmate.md      (default; available everywhere)
+ *   --project  ./.claude/agents/crewmate.md      (cwd-scoped only)
  *   --uninstall  removes the file from whichever scope is selected
  *
  * Idempotent. Re-running overwrites, so registry / template changes propagate.
@@ -24,7 +24,7 @@ interface Opts {
 function templatePath(): string {
   // Resolve from src/commands/install-claude-agent.ts up to package root.
   const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, '..', '..', 'templates', 'mesh-router.md');
+  return path.resolve(here, '..', '..', 'templates', 'crewmate.md');
 }
 
 function targetPath(scope: 'global' | 'project'): string {
@@ -32,7 +32,7 @@ function targetPath(scope: 'global' | 'project'): string {
     scope === 'global'
       ? path.join(os.homedir(), '.claude', 'agents')
       : path.join(process.cwd(), '.claude', 'agents');
-  return path.join(dir, 'mesh-router.md');
+  return path.join(dir, 'crewmate.md');
 }
 
 export async function cmdInstallClaudeAgent(opts: Opts): Promise<void> {
@@ -79,9 +79,9 @@ export async function cmdInstallClaudeAgent(opts: Opts): Promise<void> {
   }
 
   await fs.writeFile(target, content, 'utf8');
-  process.stderr.write(`[crewmate] installed mesh-router subagent at ${target}\n`);
+  process.stderr.write(`[crewmate] installed crewmate subagent at ${target}\n`);
   process.stderr.write(
     `[crewmate] tip: start a worker pool with \`crewmate up <agent>\`, ` +
-      `then ask Claude Code to delegate via the mesh-router subagent.\n`
+      `then ask Claude Code to delegate via the crewmate subagent.\n`
   );
 }

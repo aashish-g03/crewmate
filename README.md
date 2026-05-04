@@ -29,7 +29,7 @@ layer. `crewmate` is that layer:
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) 1.1+ (`curl -fsSL https://bun.sh/install | bash`)
+- [Bun](https://bun.sh) 1.3+ (`curl -fsSL https://bun.sh/install | bash`)
 - At least one CLI agent installed and authenticated:
   - **Gemini CLI**: `npm i -g @google/gemini-cli` then `gemini` once to authenticate
   - **Kimi CLI** (optional): `uv tool install --python 3.13 kimi-cli` then `kimi` once to set model + API key
@@ -67,8 +67,8 @@ Two adapters — use one or both:
 ```bash
 # Option A: Bash subagent (always available, zero extra deps)
 crewmate install-claude-agent --global
-# → writes ~/.claude/agents/mesh-router.md
-# → any Claude Code session can now spawn the mesh-router subagent
+# → writes ~/.claude/agents/crewmate.md
+# → any Claude Code session can now spawn the crewmate subagent
 
 # Option B: MCP adapter (adds streaming progress + structured tools)
 claude mcp add crewmate -- crewmate mcp
@@ -79,7 +79,7 @@ claude mcp add crewmate -- crewmate mcp
 **Verify:**
 ```bash
 crewmate doctor                        # gemini-worker: ready
-ls ~/.claude/agents/mesh-router.md     # exists
+ls ~/.claude/agents/crewmate.md        # exists
 claude mcp list                        # shows crewmate (if MCP added)
 ```
 
@@ -93,7 +93,7 @@ crewmate up gemini-worker
 crewmate send gemini-worker "Audit src/ for dead code" --timeout=120000
 
 # Or let Claude Code delegate for you:
-# just ask Claude and mesh-router will route to the right worker.
+# just ask Claude and crewmate will route to the right worker.
 
 # Useful companions while a delegation runs:
 crewmate watch                         # tail per-task stdout/stderr logs
@@ -111,7 +111,7 @@ See `crewmate --help` for the full command grid.
   log.jsonl                              # mesh-wide append-only NDJSON event log
   <agent>/
     agent-card.json                      # capability self-description
-    config.json                          # { poolSize: 3, timeoutMs: 300000 }
+    config.json                          # { poolSize: 1, timeoutMs: 300000 }
     inbox/<taskId>.task.json             # FIFO; workers race to claim via rename
     outbox/<taskId>.result.json          # results
     cancel/<taskId>                      # zero-byte sentinel for cancellation
@@ -142,7 +142,7 @@ the shape is intentionally identical to Claude Code's `<task-notification>`:
 ## Concurrency model
 
 `crewmate up <agent>` reads `~/.crewmate/<agent>/config.json` for `poolSize`
-(default 3) and spawns N child processes via `Bun.spawn`. The parent
+(default 1, auto-scales to `maxWorkers` which defaults to 5) and spawns N child processes via `Bun.spawn`. The parent
 *supervises*: if a child exits unexpectedly it gets respawned after a 1 s
 backoff. SIGINT/SIGTERM propagates downward.
 
@@ -166,11 +166,11 @@ Cancellation rides a parallel chokidar watch on `cancel/`. When
 
 ## Built-in agents
 
-| name              | model  | context  | strengths                                     |
-| ----------------- | ------ | -------- | --------------------------------------------- |
-| `gemini-worker`   | gemini | 2 M      | large-codebase audit, hallucination check     |
-| `kimi-worker`     | kimi   | 256 K    | deep reasoning, second opinion                |
-| `codex-worker`    | codex  | 200 K    | OpenAI-family refactors, vendor diversity     |
+| name              | model  | context  | transport    | strengths                                     |
+| ----------------- | ------ | -------- | ------------ | --------------------------------------------- |
+| `gemini-worker`   | gemini | 2 M      | ACP (native) | large-codebase audit, hallucination check     |
+| `kimi-worker`     | kimi   | 256 K    | ACP (shim)   | deep reasoning, second opinion                |
+| `codex-worker`    | codex  | 200 K    | ACP (shim)   | OpenAI-family refactors, vendor diversity     |
 
 Add your own by appending to `src/agents/registry.ts` and re-running
 `crewmate init`, or by hand-writing an `agent-card.json` under
@@ -212,10 +212,10 @@ global use, copy the routing section to `~/.claude/CLAUDE.md`.
 For non-MCP clients, or when you want a dedicated routing subagent:
 
 ```bash
-crewmate install-claude-agent --global    # → ~/.claude/agents/mesh-router.md
+crewmate install-claude-agent --global    # → ~/.claude/agents/crewmate.md
 ```
 
-This installs `mesh-router`, a subagent that delegates via
+This installs `crewmate`, a subagent that delegates via
 `crewmate send` in Bash. It discovers workers via `crewmate doctor --json`
 and only delegates to ready ones. Stderr streams live worker output.
 
@@ -229,9 +229,9 @@ crewmate send gemini-worker "audit src/ for dead code" --timeout=120000
 | | MCP | Bash subagent |
 |---|---|---|
 | Streaming progress | Native MCP notifications | Stderr lines |
-| Tool discovery | Shows in Claude Code UI | Hidden behind mesh-router |
+| Tool discovery | Shows in Claude Code UI | Hidden behind crewmate subagent |
 | Works outside Claude Code | No (MCP-aware clients only) | Yes (any shell) |
-| Routing logic lives in | `.claude/CLAUDE.md` | `mesh-router.md` template |
+| Routing logic lives in | `.claude/CLAUDE.md` | `crewmate.md` template |
 | Setup | `claude mcp add` (one command) | `crewmate install-claude-agent` |
 
 Both adapters call into the same `crewmate core` — same mailbox, same
@@ -264,18 +264,18 @@ The mesh ships **read-only and non-interactive by default**, on purpose:
    `send` is a fresh worker context **by default**: prompt in, text out.
    If the worker's answer is "I need more info, can you clarify X?",
    that's just text in the result. The orchestrator (Claude Code,
-   mesh-router, …) reads it, decides, and issues a *new* `send` with the
+   crewmate subagent, …) reads it, decides, and issues a *new* `send` with the
    clarification appended. No multi-turn protocol at the mesh level.
 
    v1.1 adds **opt-in persistent contexts** (`--context=`, `--new-context`,
    `contextId` on the MCP tool) that let a worker retain prior turns
    across sends — see "Persistent contexts (v1.1)" below. Fresh-context-
    per-send remains the default; existing v1 callers do not break.
-   Future v2.0 swaps the spawn-per-task runner for a persistent ACP
-   runner that reuses the same envelope shape.
+   ACP agents maintain session state in-memory; the worker maps between
+   crewmate context IDs (`ctx_...`) and ACP session IDs.
 
 3. **The orchestrator can still talk to the user.** That happens through
-   Claude Code's normal subagent conversation flow — `mesh-router` is a
+   Claude Code's normal subagent conversation flow — `crewmate` is a
    regular subagent and has multi-turn dialogue with the user for the
    duration of its `Task` invocation. The mesh has nothing to do with
    that path; it only governs *downward* delegation to workers.
@@ -383,7 +383,7 @@ warnings as the concatenated prompt crosses 50K / 100K / 200K chars.
 
 See [`AGENTS.md`](./AGENTS.md#working-with-persistent-contexts) for the
 deeper "when to use" guide and the on-disk layout, and
-[`templates/mesh-router.md`](./templates/mesh-router.md) for the orchestrator
+[`templates/crewmate.md`](./templates/crewmate.md) for the orchestrator
 playbook.
 
 ## Design notes (Tier-2 inspiration)
