@@ -35,6 +35,10 @@ Putting role intelligence in shims would couple two things that should evolve in
 6. **Materialize the dirs**: `crewmate init` reads the registry and creates `~/.crewmate/<name>/{inbox,outbox,config.json,card.json}`.
 7. **Validate**: extend `scripts/validate.sh` with a round-trip test for the new agent (or write `scripts/validate-<name>.sh` if it's heavyweight).
 
+## ACP transport
+
+Agents whose CLI supports the Agent Context Protocol can set `transport: 'acp'` and `acpCommand` in the registry. The worker spawns the CLI once and sends tasks as JSON-RPC `sessions/message` calls instead of spawning a fresh process per task. Sessions live in the agent's memory, eliminating disk-based context concatenation. Set `transport: 'spawn'` (or omit it) for CLIs that don't support ACP.
+
 ## Triangulation example
 
 When a claim is load-bearing and you're uncertain, fan out to all three workers in parallel and reconcile. From `mesh-router`:

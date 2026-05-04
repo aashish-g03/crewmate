@@ -70,6 +70,10 @@ affinity/     → worker-PID claim sentinels for context routing
 
 Multi-turn sessions stored under `contexts/<contextId>/`. Prior turns are concatenated verbatim (no summarization) into the prompt. Affinity routing ensures only one worker processes a context at a time. TTL defaults to 30 minutes; archived contexts move to `contexts/.archived/`. Caps: 50 per agent, 10 per worker.
 
+### ACP transport (v2.0)
+
+Agents with `transport: 'acp'` in their card use a persistent stdio connection instead of spawn-per-task. The worker keeps a long-lived child process (`acpCommand`) and sends JSON-RPC messages for each task. Sessions are maintained in the agent's memory — no disk-based context concatenation needed. Non-ACP agents (`transport: 'spawn'`, the default) continue using the existing `runCli()` path. Currently only gemini-worker supports ACP via `gemini --acp`.
+
 ## Conventions
 
 - Bun 1.1+ runtime, ESM modules, TypeScript with strict mode.
