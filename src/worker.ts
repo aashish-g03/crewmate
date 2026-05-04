@@ -203,23 +203,64 @@ async function main(): Promise<void> {
       sessionId = existingContextId;
     }
 
+    if (req.mode) {
+      await acpRunner.setMode(sessionId, req.mode);
+    }
+
     const timeoutMs = req.timeoutMs ?? cfg.timeoutMs;
-    const runRes = await acpRunner.sendMessage(sessionId, req.prompt, {
-      timeoutMs,
-      signal: ac.signal,
-    });
+    const maxRetries = cfg.maxRetries ?? 2;
+    let runRes: RunnerResult | null = null;
+    let lastError: string | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      runRes = await acpRunner.sendMessage(sessionId, req.prompt, {
+        timeoutMs,
+        signal: ac.signal,
+      });
+
+      // Don't retry on abort/cancel
+      if (runRes.hint === 'aborted') break;
+
+      // Don't retry on success
+      if (runRes.exitCode === 0) break;
+
+      // Don't retry on the last attempt
+      if (attempt === maxRetries) break;
+
+      // Only retry on transient errors (timeout, server errors)
+      const isTransient = runRes.hint === 'timeout' ||
+        runRes.stderr.includes('500') ||
+        runRes.stderr.includes('503') ||
+        runRes.stderr.includes('429') ||
+        runRes.stderr.includes('rate') ||
+        runRes.stderr.includes('ECONNRESET') ||
+        runRes.stderr.includes('ETIMEDOUT');
+
+      if (!isTransient) break;
+
+      lastError = runRes.stderr.trim().slice(-200);
+      const delay = Math.min(2000 * Math.pow(2, attempt), 16000);
+      log({
+        event: 'acp_retry',
+        agent: AGENT_NAME,
+        taskId,
+        reason: lastError,
+        message: `attempt ${attempt + 1}/${maxRetries + 1}, retrying in ${delay}ms`,
+      });
+      await new Promise(r => setTimeout(r, delay));
+    }
 
     let status: TaskStatus = 'completed';
     let error: string | null = null;
-    if (runRes.hint === 'aborted') {
+    if (runRes!.hint === 'aborted') {
       status = 'canceled';
       error = 'Canceled by cancel sentinel';
-    } else if (runRes.hint === 'timeout') {
+    } else if (runRes!.hint === 'timeout') {
       status = 'timeout';
       error = `Exceeded timeoutMs=${timeoutMs}`;
-    } else if (runRes.exitCode !== 0 && runRes.exitCode !== null) {
+    } else if (runRes!.exitCode !== 0 && runRes!.exitCode !== null) {
       status = 'failed';
-      error = runRes.stderr.trim().slice(-500) || 'ACP request failed';
+      error = runRes!.stderr.trim().slice(-500) || 'ACP request failed';
     }
 
     const session = acpRunner.getSession(sessionId);

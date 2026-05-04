@@ -32,6 +32,8 @@ interface SendOptions {
   ownerHint?: string;
   /** TTL override (ms) for the newly-minted context. Only honored with newContext=true. */
   ttlMs?: number;
+  /** Agent mode to set for this task (e.g. plan, autoEdit, yolo). ACP-only. */
+  mode?: string;
 }
 
 const CONTEXT_ID_REGEX = /^ctx_[a-z0-9]{8}$/;
@@ -111,6 +113,10 @@ export async function cmdSend(
   }
   if (opts.ttlMs !== undefined) {
     envelope.ttlMs = opts.ttlMs;
+    envelope.version = 2;
+  }
+  if (opts.mode !== undefined) {
+    envelope.mode = opts.mode;
     envelope.version = 2;
   }
 

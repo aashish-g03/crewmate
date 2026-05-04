@@ -49,6 +49,8 @@ export const TaskRequest = z
     ownerHint: z.string().max(64).optional(),
     /** TTL override (ms) for newly-minted contexts. Only honored when newContext=true. */
     ttlMs: z.number().int().positive().optional(),
+    /** Agent mode to set for this task (e.g. plan, autoEdit, yolo). ACP-only. */
+    mode: z.string().optional(),
   })
   .refine(
     (v) => !(v.newContext && v.contextId),
@@ -105,6 +107,7 @@ export const AgentCard = z
 export const AgentConfig = z.object({
   poolSize: z.number().int().positive().default(3),
   timeoutMs: z.number().int().positive().default(300_000),
+  maxRetries: z.number().int().min(0).default(2),
 });
 
 export type TaskRequest = z.infer<typeof TaskRequest>;

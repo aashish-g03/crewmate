@@ -198,6 +198,18 @@ export class AcpRunner {
     })();
   }
 
+  async setMode(sessionId: string, modeId: string): Promise<void> {
+    await this.ensureRunning();
+    const resp = await this.rpc!.request('session/setMode', { sessionId, modeId }, 10_000);
+    if (resp.error) {
+      log({
+        event: 'acp_set_mode_failed',
+        agent: this.card.name,
+        error: resp.error.message,
+      });
+    }
+  }
+
   async createSession(opts?: { cwd?: string }): Promise<string> {
     await this.ensureRunning();
     const resp = await this.rpc!.request('session/new', {
