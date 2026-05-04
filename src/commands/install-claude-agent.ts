@@ -4,15 +4,16 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Copies the bundled `templates/mesh-router.md` into Claude Code's agents
+ * Copies the bundled `templates/crewmate.md` into Claude Code's agents
  * directory. Keeps the npm package responsible for *its own* installation —
  * the user never has to know where Claude Code looks for subagents.
  *
- *   --global   ~/.claude/agents/mesh-router.md      (default; available everywhere)
- *   --project  ./.claude/agents/mesh-router.md      (cwd-scoped only)
+ *   --global   ~/.claude/agents/crewmate.md      (default; available everywhere)
+ *   --project  ./.claude/agents/crewmate.md      (cwd-scoped only)
  *   --uninstall  removes the file from whichever scope is selected
  *
  * Idempotent. Re-running overwrites, so registry / template changes propagate.
+ * Also cleans up the legacy `mesh-router.md` name on install.
  */
 
 interface Opts {
@@ -22,9 +23,8 @@ interface Opts {
 }
 
 function templatePath(): string {
-  // Resolve from src/commands/install-claude-agent.ts up to package root.
   const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, '..', '..', 'templates', 'mesh-router.md');
+  return path.resolve(here, '..', '..', 'templates', 'crewmate.md');
 }
 
 function targetPath(scope: 'global' | 'project'): string {
@@ -32,22 +32,38 @@ function targetPath(scope: 'global' | 'project'): string {
     scope === 'global'
       ? path.join(os.homedir(), '.claude', 'agents')
       : path.join(process.cwd(), '.claude', 'agents');
+  return path.join(dir, 'crewmate.md');
+}
+
+function legacyTargetPath(scope: 'global' | 'project'): string {
+  const dir =
+    scope === 'global'
+      ? path.join(os.homedir(), '.claude', 'agents')
+      : path.join(process.cwd(), '.claude', 'agents');
   return path.join(dir, 'mesh-router.md');
+}
+
+async function quietUnlink(p: string): Promise<boolean> {
+  try {
+    await fs.unlink(p);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  }
 }
 
 export async function cmdInstallClaudeAgent(opts: Opts): Promise<void> {
   const target = targetPath(opts.scope);
+  const legacy = legacyTargetPath(opts.scope);
 
   if (opts.uninstall) {
-    try {
-      await fs.unlink(target);
-      process.stderr.write(`[crewmate] removed ${target}\n`);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        process.stderr.write(`[crewmate] nothing to remove at ${target}\n`);
-      } else {
-        throw err;
-      }
+    const removedNew = await quietUnlink(target);
+    const removedOld = await quietUnlink(legacy);
+    if (removedNew) process.stderr.write(`[crewmate] removed ${target}\n`);
+    if (removedOld) process.stderr.write(`[crewmate] removed legacy ${legacy}\n`);
+    if (!removedNew && !removedOld) {
+      process.stderr.write(`[crewmate] nothing to remove\n`);
     }
     return;
   }
@@ -79,9 +95,15 @@ export async function cmdInstallClaudeAgent(opts: Opts): Promise<void> {
   }
 
   await fs.writeFile(target, content, 'utf8');
-  process.stderr.write(`[crewmate] installed mesh-router subagent at ${target}\n`);
+
+  // Clean up legacy mesh-router.md if it exists
+  if (await quietUnlink(legacy)) {
+    process.stderr.write(`[crewmate] removed legacy mesh-router.md\n`);
+  }
+
+  process.stderr.write(`[crewmate] installed crewmate agent at ${target}\n`);
   process.stderr.write(
-    `[crewmate] tip: start a worker pool with \`crewmate up <agent>\`, ` +
-      `then ask Claude Code to delegate via the mesh-router subagent.\n`
+    `[crewmate] tip: start a worker pool with \`crewmate up gemini-worker\`, ` +
+      `then just ask Claude Code to "audit src/ with crewmate" or "get a second opinion".\n`
   );
 }
