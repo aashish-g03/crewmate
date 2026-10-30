@@ -33,7 +33,8 @@ interface Session {
   cwd?: string;
   turns: Array<{ prompt: string; response: string }>;
   mode: string;
-  model: string;
+  /** Unset until session/setModel; the CLI's own default model applies until then. */
+  model?: string;
   effort?: string;
 }
 
@@ -109,7 +110,6 @@ async function handleRequest(id: number | string, method: string, params: Record
         cwd,
         turns: [],
         mode: 'default',
-        model: shimBinary,
       });
       respond(id, {
         sessionId,
@@ -118,8 +118,9 @@ async function handleRequest(id: number | string, method: string, params: Record
           currentModeId: 'default',
         },
         models: {
-          availableModels: [{ modelId: shimBinary, name: shimBinary }],
-          currentModelId: shimBinary,
+          // The wrapped CLI's models aren't discoverable here; 'default' = its own default.
+          availableModels: [],
+          currentModelId: 'default',
         },
       });
       break;
@@ -163,7 +164,7 @@ async function handleRequest(id: number | string, method: string, params: Record
         // Build argv: substitute {prompt}; keep ?model:/?effort: tokens only when set
         const argv = buildShimArgv(shimBinary, shimArgs, {
           prompt: fullPrompt,
-          model: session.model !== shimBinary ? session.model : undefined,
+          model: session.model,
           effort: session.effort,
         });
 

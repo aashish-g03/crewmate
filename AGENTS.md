@@ -77,6 +77,17 @@ In `src/agents/registry.ts`, add `transport: 'acp'` and `acpCommand`:
 
 The `cliCommand` stays as a fallback. If ACP fails to initialize, the worker falls back to spawn-per-task automatically.
 
+### Wrapping a non-ACP CLI with the shim (model and effort tokens)
+
+A CLI without an ACP mode runs through the shim: `acpCommand: ['bun', SHIM_PATH, '<binary>', ...args]`. In those args:
+
+- `{prompt}` is replaced by the prompt (with prior turns, for a continuing context).
+- `?model:<token>` is kept only when a task sets `--model`, with `{model}` substituted, e.g. `'?model:-m', '?model:{model}'`.
+- `?effort:<token>` is the same for `--effort`, e.g. `'?effort:-c', '?effort:model_reasoning_effort="{effort}"'` (codex) or `'?effort:--effort', '?effort:{effort}'` (agy).
+- Unset model or effort: the optional tokens are dropped and the CLI's own defaults apply.
+
+These tokens work only in a shim `acpCommand`. `cliCommand` (spawn transport) ignores them, so `--model` and `--effort` don't reach spawn-transport agents. A model set on a context sticks for later tasks in that context until another `--model` is passed.
+
 ## Triangulation example
 
 When a claim is load-bearing and you're uncertain, fan out to all three workers in parallel and reconcile. From `crewmate`:
