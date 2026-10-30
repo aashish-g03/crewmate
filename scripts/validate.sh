@@ -70,13 +70,13 @@ fi
 BUN_VERSION="$(bun --version 2>&1)" || { fail "bun --version failed: $BUN_VERSION"; exit 1; }
 ok "bun $BUN_VERSION"
 
-info "checking gemini CLI"
-if ! command -v gemini >/dev/null 2>&1; then
-  fail "gemini CLI not on PATH. Install per https://github.com/google-gemini/gemini-cli."
+info "checking Antigravity CLI (agy), which gemini-worker runs on"
+if ! command -v agy >/dev/null 2>&1; then
+  fail "agy not on PATH. Install: curl -fsSL https://antigravity.google/cli/install.sh | bash, then run agy once to sign in."
   exit 1
 fi
-GEMINI_VERSION="$(gemini --version 2>&1 || true)"
-ok "gemini $GEMINI_VERSION"
+AGY_VERSION="$(agy --version 2>&1 || true)"
+ok "agy $AGY_VERSION"
 
 info "checking src/cli.ts"
 if [[ ! -f "$PROJECT_ROOT/src/cli.ts" ]]; then

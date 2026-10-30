@@ -96,7 +96,7 @@ crewmate up gemini-worker
 crewmate send gemini-worker "Audit src/ for dead code" --timeout=120000
 
 # Pick a specific model or mode (ACP agents only)
-crewmate send gemini-worker "Review auth flow" --model=gemini-2.5-pro
+crewmate send gemini-worker "Review auth flow" --model=gemini-3.8-flash-high
 crewmate send gemini-worker "List all exports" --mode=plan
 
 # Or let Claude Code delegate for you:
@@ -190,7 +190,7 @@ Cancellation rides a parallel chokidar watch on `cancel/`. When
 
 | name              | model  | transport    | context  | strengths                                     |
 | ----------------- | ------ | ------------ | -------- | --------------------------------------------- |
-| `gemini-worker`   | gemini | ACP (native) | 2 M      | large-codebase audit, hallucination check. Autonomous — reads files, uses tools. |
+| `gemini-worker`   | gemini | ACP shim over Antigravity `agy -p` | 1 M      | large-codebase audit, hallucination check. Runs on Antigravity CLI since Gemini CLI dropped individual accounts (2026-06-18); `--sandbox`, no auto-approved writes. |
 | `kimi-worker`     | kimi   | ACP (shim)   | 256 K    | deep reasoning, second opinion                |
 | `codex-worker`    | codex  | ACP (shim)   | 200 K    | OpenAI-family refactors, vendor diversity     |
 

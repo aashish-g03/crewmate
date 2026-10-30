@@ -31,24 +31,28 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
   'gemini-worker': {
     name: 'gemini-worker',
     description:
-      'Long-context auditor and hallucination checker via Gemini CLI',
+      'Long-context auditor and hallucination checker via Antigravity CLI (agy)',
     model: 'gemini',
-    contextWindow: 2_000_000,
+    contextWindow: 1_000_000,
     strengths: [
       'large-codebase audit',
       'cross-file verification',
       'hallucination check',
     ],
-    cliCommand: [
-      'gemini',
-      '-p',
-      '{prompt}',
-      '--approval-mode',
-      'auto_edit',
-      '--skip-trust',
-    ],
+    cliCommand: ['agy', '-p', '{prompt}', '--sandbox'],
     transport: 'acp',
-    acpCommand: ['gemini', '--acp'],
+    // Antigravity CLI (agy): Gemini CLI stopped serving individual Google accounts on
+    // 2026-06-18. agy has no ACP mode yet, so it runs through the shim in headless
+    // print mode; --sandbox restricts its terminal and print mode's request-review
+    // permissions never auto-approve writes.
+    acpCommand: [
+      'bun', SHIM_PATH, 'agy', '-p', '{prompt}',
+      '?model:--model', '?model:{model}',
+      '?effort:--effort', '?effort:{effort}',
+      '--sandbox',
+    ],
+    setupHint:
+      'Antigravity CLI not ready. Install: `curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run `agy` once interactively to sign in.',
   },
   'kimi-worker': {
     name: 'kimi-worker',

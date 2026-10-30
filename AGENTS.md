@@ -51,13 +51,13 @@ Agents whose CLI supports the Agent Context Protocol can set `transport: 'acp'` 
 
 ### Per-task model and mode selection
 
-ACP agents (Gemini) expose available models and modes in the `session/new` response. Users can select per-task:
+Native ACP agents expose available models and modes in the `session/new` response; shim-wrapped agents (codex, gemini via `agy`) take `--model` and `--effort` through their card's tokens. Users can select per-task:
 
 ```bash
-crewmate send gemini-worker "Audit src/" --model=gemini-2.5-pro --mode=plan
+crewmate send gemini-worker "Audit src/" --model=gemini-3.8-flash-high --effort=high
 ```
 
-Available Gemini models: `auto-gemini-3` (default), `auto-gemini-2.5`, `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`.
+`gemini-worker` runs on Antigravity CLI (`agy`); list its models with `agy models` (e.g. `gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, `gemini-3.8-flash-low`). Run `agy` once interactively to sign in.
 
 Available modes: `default`, `autoEdit`, `plan` (read-only), `yolo` (auto-approve all).
 
