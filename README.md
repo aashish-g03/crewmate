@@ -98,6 +98,7 @@ crewmate send gemini-worker "Audit src/ for dead code" --timeout=120000
 # Pick a specific model or mode (ACP agents only)
 crewmate send gemini-worker "Review auth flow" --model=gemini-3.8-flash-high
 crewmate send gemini-worker "List all exports" --mode=plan
+crewmate send codex-worker "Review this diff" --model=gpt-6-sol --effort=high   # shim agents: model + effort
 
 # Or let Claude Code delegate for you:
 # just ask Claude and crewmate will route to the right worker.
@@ -107,6 +108,7 @@ crewmate watch                         # tail per-task stdout/stderr + tool-call
 crewmate status                        # queue depths per agent
 crewmate list                          # agents + readiness + load
 crewmate tail                          # mesh-wide event log
+crewmate cancel gemini-worker <taskId> # stop a queued or running task
 ```
 
 See `crewmate --help` for the full command grid.
@@ -230,7 +232,11 @@ claude mcp add crewmate -- crewmate mcp
 ```
 
 The MCP server exposes 9 tools for structured delegation with streaming
-progress notifications. The Bash CLI and MCP server are peer adapters:
+progress notifications: `crewmate_send_and_wait` (delegate and wait),
+`crewmate_list_agents` (agents and readiness), `crewmate_status` (task and
+queue state), `crewmate_cancel` (stop a task), the four context tools in
+[Persistent contexts](#persistent-contexts-v11), and `crewmate_purge_archived`
+(delete archived contexts past a threshold). The Bash CLI and MCP server are peer adapters:
 same engine underneath.
 
 ## Worker behavior contract

@@ -4,7 +4,7 @@
 # Extracts the canonical command surface from `crewmate --help` and the MCP
 # tool surface from `src/mcp/server.ts`'s `registerTool('crewmate_*', ...)`
 # calls. Fails loud if any name is missing from the user-facing docs
-# (README.md, AGENTS.md, the two mesh-router.md copies).
+# (README.md, AGENTS.md, the bundled templates/crewmate.md agent).
 #
 # This is the gate that catches doc drift introduced by parallel-agent
 # builds: if a tool ships in code without a doc mention, this script breaks.
@@ -33,8 +33,7 @@ info() { printf '%s[..]%s %s\n'   "$YELLOW" "$RESET" "$1"; }
 DOCS=(
   "README.md"
   "AGENTS.md"
-  "templates/mesh-router.md"
-  ".claude/agents/mesh-router.md"
+  "templates/crewmate.md"
 )
 
 for f in "${DOCS[@]}"; do
@@ -121,14 +120,21 @@ if [[ $MCP_MISSING -eq 0 ]]; then
   ok "all MCP tools appear in at least one doc"
 fi
 
-# ─── 5. Optional: check the bundled mesh-router template stays in sync ──────
-info "checking templates/mesh-router.md matches .claude/agents/mesh-router.md"
-if diff -q templates/mesh-router.md .claude/agents/mesh-router.md > /dev/null; then
-  ok "template and project copy are byte-identical"
+# ─── 5. Optional: an installed project copy of the agent stays in sync ──────
+# `crewmate install-claude-agent --project` copies templates/crewmate.md to
+# .claude/agents/crewmate.md (renamed from mesh-router.md in 65f1007). The copy
+# isn't committed, so only compare when one exists.
+if [[ -f .claude/agents/crewmate.md ]]; then
+  info "checking templates/crewmate.md matches .claude/agents/crewmate.md"
+  if diff -q templates/crewmate.md .claude/agents/crewmate.md > /dev/null; then
+    ok "template and project copy are byte-identical"
+  else
+    fail "templates/crewmate.md drifted from .claude/agents/crewmate.md"
+    diff templates/crewmate.md .claude/agents/crewmate.md | head -30 >&2
+    exit 1
+  fi
 else
-  fail "templates/mesh-router.md drifted from .claude/agents/mesh-router.md"
-  diff templates/mesh-router.md .claude/agents/mesh-router.md | head -30 >&2
-  exit 1
+  info "no installed .claude/agents/crewmate.md; skipping the template sync check"
 fi
 
 # ─── Summary ────────────────────────────────────────────────────────────────
