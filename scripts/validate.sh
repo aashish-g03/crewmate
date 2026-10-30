@@ -116,6 +116,20 @@ if [[ ! -d "$GEMINI_DIR" ]]; then
 fi
 
 # ---------- step 4: override poolSize=1 for the test ----------
+# Keep the user's own config and put it back on exit (see cleanup below).
+CONFIG_BACKUP=""
+if [[ -f "$GEMINI_DIR/config.json" ]]; then
+  CONFIG_BACKUP="$(mktemp -t crewmate-gemini-config)"
+  cp "$GEMINI_DIR/config.json" "$CONFIG_BACKUP"
+fi
+restore_config() {
+  if [[ -n "$CONFIG_BACKUP" && -f "$CONFIG_BACKUP" ]]; then
+    mv "$CONFIG_BACKUP" "$GEMINI_DIR/config.json"
+  else
+    rm -f "$GEMINI_DIR/config.json"
+  fi
+}
+trap restore_config EXIT
 info "writing test config (poolSize=1) to $GEMINI_DIR/config.json"
 cat > "$GEMINI_DIR/config.json" <<'JSON'
 { "poolSize": 1, "timeoutMs": 120000 }
@@ -138,6 +152,7 @@ cleanup() {
     kill -KILL "$POOL_PID" 2>/dev/null || true
   fi
   wait "$POOL_PID" 2>/dev/null || true
+  restore_config
 }
 trap cleanup EXIT
 
