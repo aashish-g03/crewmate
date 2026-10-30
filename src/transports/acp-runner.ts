@@ -275,6 +275,19 @@ export class AcpRunner {
     }
   }
 
+  /** crewmate extension, answered by acp-shim; native ACP agents reply "method not found", which is logged and ignored. */
+  async setEffort(sessionId: string, effort: string): Promise<void> {
+    await this.ensureRunning();
+    const resp = await this.rpc!.request('session/setEffort', { sessionId, effort }, 10_000);
+    if (resp.error) {
+      log({
+        event: 'acp_set_effort_failed',
+        agent: this.card.name,
+        error: resp.error.message,
+      });
+    }
+  }
+
   async createSession(opts?: { cwd?: string }): Promise<string> {
     await this.ensureRunning();
     const resp = await this.rpc!.request('session/new', {

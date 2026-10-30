@@ -26,6 +26,7 @@
  */
 
 import * as readline from 'node:readline';
+import { buildShimArgv } from './shim-argv';
 
 interface Session {
   id: string;
@@ -33,6 +34,7 @@ interface Session {
   turns: Array<{ prompt: string; response: string }>;
   mode: string;
   model: string;
+  effort?: string;
 }
 
 const sessions = new Map<string, Session>();
@@ -150,7 +152,7 @@ async function handleRequest(id: number | string, method: string, params: Record
           sessionUpdate: 'tool_call',
           toolCallId,
           status: 'in_progress',
-          title: `${shimBinary} ${shimArgs.filter(a => a !== '{prompt}').join(' ')}`.trim(),
+          title: `${shimBinary} ${shimArgs.filter(a => a !== '{prompt}' && !a.startsWith('?')).join(' ')}`.trim(),
           kind: 'command',
         },
       });
@@ -158,10 +160,12 @@ async function handleRequest(id: number | string, method: string, params: Record
       try {
         const startMs = Date.now();
 
-        // Build argv: substitute {prompt} in args
-        const argv = [shimBinary, ...shimArgs.map(a =>
-          a === '{prompt}' ? fullPrompt : a.replaceAll('{prompt}', fullPrompt)
-        )];
+        // Build argv: substitute {prompt}; keep ?model:/?effort: tokens only when set
+        const argv = buildShimArgv(shimBinary, shimArgs, {
+          prompt: fullPrompt,
+          model: session.model !== shimBinary ? session.model : undefined,
+          effort: session.effort,
+        });
 
         const proc = Bun.spawn(argv, {
           cwd: session.cwd,
@@ -263,6 +267,15 @@ async function handleRequest(id: number | string, method: string, params: Record
       const session = sessions.get(sessionId);
       if (session) session.model = params.modelId as string;
       respond(id, { modelId: params.modelId });
+      break;
+    }
+
+    // crewmate extension: reasoning effort for CLIs that take one (see shim-argv.ts)
+    case 'session/setEffort': {
+      const sessionId = params.sessionId as string;
+      const session = sessions.get(sessionId);
+      if (session) session.effort = params.effort as string;
+      respond(id, { effort: params.effort });
       break;
     }
 

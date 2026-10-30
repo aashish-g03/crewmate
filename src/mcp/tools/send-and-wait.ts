@@ -63,6 +63,10 @@ export const sendAndWaitInputShape = {
     .string()
     .optional()
     .describe('Model to use for ACP workers (e.g. gemini-2.5-pro, gemini-3-flash-preview). Ignored by spawn workers.'),
+  effort: z
+    .string()
+    .optional()
+    .describe('Reasoning effort (e.g. low, medium, high) for shim-backed ACP workers such as codex. Ignored elsewhere.'),
 };
 
 const HEARTBEAT_MS = 5_000;
@@ -78,6 +82,7 @@ export async function handleSendAndWait(
     ownerHint?: string;
     mode?: string;
     model?: string;
+    effort?: string;
   },
   extra: McpExtra
 ): Promise<ToolReturn> {
@@ -122,6 +127,7 @@ export async function handleSendAndWait(
     ...(args.ownerHint !== undefined ? { ownerHint: args.ownerHint } : {}),
     ...(args.mode !== undefined ? { mode: args.mode } : {}),
     ...(args.model !== undefined ? { model: args.model } : {}),
+    ...(args.effort !== undefined ? { effort: args.effort } : {}),
   });
   log({ event: 'mcp_tool_call', agent: args.agent, taskId, message: 'send_and_wait queued' });
 

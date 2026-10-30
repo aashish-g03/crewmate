@@ -36,6 +36,8 @@ interface SendOptions {
   mode?: string;
   /** Model to use for this task (e.g. gemini-2.5-pro). ACP-only. */
   model?: string;
+  /** Reasoning effort for this task (e.g. high). ACP shim agents only. */
+  effort?: string;
 }
 
 const CONTEXT_ID_REGEX = /^ctx_[a-z0-9]{8}$/;
@@ -127,6 +129,9 @@ export async function cmdSend(
   if (opts.mode !== undefined) {
     envelope.mode = opts.mode;
     envelope.version = 2;
+  }
+  if (opts.effort !== undefined) {
+    envelope.effort = opts.effort;
   }
   if (opts.model !== undefined) {
     envelope.model = opts.model;

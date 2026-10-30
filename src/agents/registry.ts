@@ -74,7 +74,12 @@ export const BUILT_IN_AGENTS: Record<string, AgentCard> = {
     ],
     cliCommand: ['codex', 'exec', '--skip-git-repo-check', '{prompt}'],
     transport: 'acp',
-    acpCommand: ['bun', SHIM_PATH, 'codex', 'exec', '--skip-git-repo-check', '{prompt}'],
+    acpCommand: [
+      'bun', SHIM_PATH, 'codex', 'exec', '--skip-git-repo-check',
+      '?model:-m', '?model:{model}',
+      '?effort:-c', '?effort:model_reasoning_effort="{effort}"',
+      '{prompt}',
+    ],
     setupHint:
       'Codex CLI not installed. Install via `npm i -g @openai/codex` (or your preferred Codex CLI).',
   },

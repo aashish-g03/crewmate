@@ -57,6 +57,8 @@ export const TaskRequest = z
     mode: z.string().optional(),
     /** Model to use for this task (e.g. gemini-2.5-pro). ACP-only. */
     model: z.string().optional(),
+    /** Reasoning effort for this task (e.g. low, medium, high). ACP shim agents only. */
+    effort: z.string().optional(),
   })
   .refine(
     (v) => !(v.newContext && v.contextId),
