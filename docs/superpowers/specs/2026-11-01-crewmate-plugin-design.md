@@ -1,232 +1,313 @@
 # crewmate v1: one Claude Code plugin for other vendors' coding agents
 
-Status: draft for review (2026-11-01)
+Status: draft, revision 2 (2026-11-01), after an EGM goldfish review (reports in [`egm-review-2026-11-01/`](egm-review-2026-11-01/))
 Author: Aashish Gupta (decisions), drafted with Claude
-Replaces: the v0.2 architecture (filesystem mailbox, worker pool, MCP server, Bash subagent), described in `README.md` and `docs/superpowers/2026-05-04-acp-transport.md` on this branch.
+Replaces: the v0.2 architecture (filesystem mailbox, worker pool, MCP server, Bash subagent), described in [`README.md`](../../../README.md) and [`docs/superpowers/plans/2026-05-04-acp-transport.md`](../plans/2026-05-04-acp-transport.md).
+
+## Terms
+
+- **Vendor:** a coding-agent CLI crewmate can drive. v1 has two vendor names: `codex` (OpenAI Codex CLI) and `gemini` (Google's Antigravity CLI, `agy`, which runs Gemini models).
+- **Job:** one prompt sent to one vendor, with its own id, event log and final answer.
+- **Goldfish / elephant:** terms from Google's [Elephant-Goldfish Model (EGM)](https://github.com/google/elephant-goldfish-model) ([egm.dev](https://egm.dev); the repo says it is not an officially supported Google product). The *elephant* is the agent that holds the full conversation and writes a design; a *goldfish* is a reviewer that starts with no conversation context, so gaps the author filled in mentally become visible.
+- **Monitor:** a Claude Code tool that runs a command in the background and delivers each line it prints to the conversation as a notification. It has a timeout (default 5 minutes, at most 30), and it stops a command that prints too many lines.
+- **ACP:** [Agent Client Protocol](https://agentclientprotocol.com), a JSON-RPC protocol for talking to coding agents. v0.2 used it; v1 does not.
 
 ## 1. Problem
 
-Aashish uses Claude Code as his main agent and wants it to hand work to other vendors' coding agents (OpenAI Codex, Google Gemini through the Antigravity CLI `agy`) for second opinions, large-context reads and delegated work. Today several separate projects each cover a slice of this (OpenAI's `codex-plugin-cc` for Codex, `gemini-mcp-tool` for Gemini, Zen/PAL for multi-model reviews, EGM for zero-context spec reviews). He wants one project that gathers the useful parts, works from any of his sessions, and is simple enough for other people to install and use.
+Aashish uses Claude Code as his main agent and wants it to hand work to other vendors' coding agents for second opinions, large-context reads and delegated work. Today separate projects each cover a slice of this:
+- OpenAI's [`codex-plugin-cc`](https://github.com/openai/codex-plugin-cc): Codex only
+- [`gemini-mcp-tool`](https://github.com/jamubc/gemini-mcp-tool): Gemini only
+- [PAL, formerly Zen](https://github.com/BeehiveInnovations/pal-mcp-server): multi-model tools over provider APIs
+- [EGM](https://github.com/google/elephant-goldfish-model): zero-context spec reviews by fresh Claude subagents
 
-crewmate v0.2 already tries this and fails in three observed ways:
+He wants one project that covers the goals in section 2, works from any of his sessions, and that other people can install in two commands.
 
-1. **No progress reaches the user.** Claude spawns the `crewmate` Bash-only subagent, which runs `crewmate send` in the foreground. `send` prints each worker tool call to stderr, but that output stays inside the subagent's Bash call. Claude Code shows the parent session only the subagent's final message, so the user sees nothing until the end. The MCP route (`send_and_wait`) does send progress notifications, but they only say "queued", "claimed by pid=…" and "running, 25s elapsed". The real tool-call events are written to `logs/<task>.progress.log` and never forwarded.
+crewmate v0.2 tries this and fails in three observed ways:
+
+1. **No progress reaches the user.** Claude spawns the `crewmate` Bash-only subagent, which runs `crewmate send` in the foreground. `send` prints each worker tool call to stderr, but that output stays inside the subagent's Bash call; Claude Code shows the parent session only the subagent's final message. The MCP route (`send_and_wait`) sends progress notifications, but they only say "queued", "claimed by pid=…" and "running, 25s elapsed"; the real tool-call events are written to `logs/<task>.progress.log` and never forwarded.
 2. **Tasks silently stall.** Unless `crewmate up <agent>` is running in another terminal, a task sits in the inbox until its timeout.
-3. **Install takes seven steps:** install Bun, clone, `bun install`, `bun link`, `crewmate init`, `crewmate install-claude-agent`, `claude mcp add`, then keep `crewmate up` running.
+3. **Install takes seven commands** (install Bun, clone, `bun install`, `bun link`, `crewmate init`, `crewmate install-claude-agent`, `claude mcp add`) and then a terminal kept open for `crewmate up`.
 
-Two open bugs also matter: failures are reported with status "completed" (issue 1), and `agy` hangs when signed out (issue 2).
+Two known bugs are in scope (not yet filed as GitHub issues): a failed task is reported with status "completed", and `agy` hangs when it is signed out.
 
 ## 2. Goals, non-goals, anti-goals
 
 ### Goals
 
 1. **Two-command install** in Claude Code, with no Bun, no clone and no `npm install`:
-   ```
+   ```text
    /plugin marketplace add aashish-g03/crewmate
    /plugin install crewmate@crewmate
    ```
-   The only other prerequisite is the vendor CLI itself (`codex`, `agy`), installed and signed in. `/crewmate:setup` says exactly which one is missing and how to fix it.
-2. **Live progress in the conversation.** While a job runs, the user and Claude see one line per meaningful event (tool started or finished, a denied permission, done or failed) without opening another terminal.
-3. **Background jobs that outlive the call.** A long job runs detached. Claude keeps working, and is told when the job finishes. Jobs survive the Claude session ending; their results can be read later.
-4. **Honest outcomes.** A job ends as exactly one of `done`, `failed`, `timeout`, `canceled`. Tool calls the vendor CLI denied are reported, not hidden.
-5. **Goldfish critique.** `/crewmate:critique <path or diff>` sends a document or change to every ready vendor in parallel with no conversation context, in the style of Google's Elephant-Goldfish Model (EGM), and returns each report.
-6. **Follow-ups.** `--resume` continues the last conversation with that vendor in this workspace.
-7. **Works outside Claude Code.** The engine is a plain command-line program, so Codex, agy, Cursor or a shell can call it too.
+   Other prerequisites: Node.js 20 or later, and the vendor CLIs the user wants (`codex`, `agy`), installed and signed in. `/crewmate:setup` says exactly what is missing and how to fix it.
+2. **Live progress in the conversation.** While a job runs, the user and Claude see one line per event (job started, tool started or finished, tool denied, job ended) without opening another terminal.
+3. **Jobs that outlive the call.** Every job runs as a detached process. Claude keeps working, and is told when the job ends. Jobs survive the Claude session ending; their results can be read later.
+4. **Accurate final states.** A job ends as exactly one of `done`, `failed`, `timeout`, `canceled`. Tools the vendor denied are listed in the job's outcome, never hidden.
+5. **Goldfish critique.** `/crewmate:critique <path or diff>` sends a document or change to every ready vendor in parallel, with no conversation context, and returns each report.
+6. **Follow-ups.** `--resume` continues an earlier conversation with a vendor.
+7. **Works outside Claude Code.** The engine is a plain command-line program with one state folder, so Codex, agy, Cursor or a shell can call it, and their jobs are visible from Claude Code.
 
 ### Non-goals (v1)
 
 - Git worktrees or any per-job workspace isolation. Jobs run in the caller's directory. (Aashish ruled this out.)
-- A boss-and-crew supervisor that splits work and opens PRs (that is what firstmate does).
-- An MCP server. (Decided; see section 7.)
-- Kimi, Cursor Agent or other vendors as first-class adapters. Section 4.4 keeps the door open.
-- A long-lived broker process, a Stop-hook review gate, or "transfer this session to Codex" (all present in `codex-plugin-cc`).
-- Plugin manifests for Codex and agy (EGM ships these). Possible later; nothing in v1 should block it.
+- A boss-and-crew supervisor that splits work and opens PRs. That is what [firstmate](https://github.com/kunchenguid/firstmate) does.
+- An MCP server (section 7, alternative 1).
+- Kimi, Cursor Agent or other vendors. The vendor adapter (4.4) is the extension point.
+- Anything `codex-plugin-cc` has beyond jobs: its long-lived broker, its Codex `app-server` client, its Stop-hook review gate, and "transfer this session to Codex".
+- Plugin manifests for Codex and agy (EGM ships these). Possible later; v1 must not block it.
+- Claude Code hooks.
 
-### Anti-goals (failure even if it "works")
+### Anti-goals (counted as failure even when the job completes)
 
 - A user has to keep a terminal open, or run a daemon, for jobs to start.
-- A job reports success when the vendor failed, timed out or was denied the tools it needed.
-- crewmate runs a vendor with all permissions bypassed unless the user typed an explicit flag for it.
-- crewmate grows its own model-calling logic (API keys, prompt templating beyond the critique prompt, routing heuristics). It drives vendor CLIs the user already has, and nothing else.
+- A job ends `done` without listing tools the vendor denied, or with an empty answer.
+- crewmate runs a vendor with all permissions bypassed unless the user typed `--yolo`.
+- crewmate grows its own model-calling logic (API keys, provider routing, prompt rewriting beyond the critique template). It drives vendor CLIs the user already has.
 
 ## 3. Users and the main flows
 
-**Claude Code user (primary).** Installs the plugin, runs `/crewmate:setup` once, then either types a command or lets Claude call crewmate on its own when a second opinion helps (the bundled skill tells Claude when and how).
+### 3.1 Claude Code user (primary)
 
-Flow A, quick question (foreground):
-`/crewmate:ask codex "Is the retry logic in src/queue.ts safe under concurrent consumers?"` → crewmate runs Codex read-only in the current directory → progress lines stream into the Bash output → the answer prints → Claude shows it.
+Installs the plugin, runs `/crewmate:setup` once, then either types a command or lets Claude call crewmate when a second opinion helps (the bundled skill says when).
 
-Flow B, long job (background):
-Claude runs `crewmate ask gemini --background "Read all of src/ and list dead exports"` → prints a job id at once → Claude starts a Monitor on `crewmate watch <id>`, so each event arrives in the conversation as it happens → when the job ends, `watch` prints the final status and exits → Claude reads `crewmate result <id>`.
+**Flow A, short question.** `/crewmate:ask codex "Is the retry logic in src/queue.ts safe under concurrent consumers?"`
+1. crewmate starts a detached, read-only Codex job and prints its id.
+2. The command runs `crewmate watch <id>` inline, which prints events as they happen and exits with the job's exit code.
+3. Claude shows the answer from `crewmate result <id>`.
+If the Bash call hits Claude Code's Bash time limit (2 minutes by default), only `watch` stops; the job keeps running, and Claude continues with Flow B's watch step.
 
-Flow C, critique:
-`/crewmate:critique docs/specs/payment-design.md` → crewmate starts one read-only job per ready vendor with the same critique prompt and only the file paths → Claude watches all of them → Claude presents the reports side by side, marking where vendors agree. Claude (the elephant, with full context) decides which findings matter; crewmate does not merge them with a model.
+**Flow B, long job.** Claude runs `crewmate ask gemini "Read all of src/ and list dead exports"` with `--detach`, which prints the job id and returns.
+1. Claude starts a Monitor on `crewmate watch <id>`, with a Monitor timeout at least as long as the job timeout. Each event line arrives in the conversation as it happens.
+2. When the job ends, `watch` prints the final line and exits; Monitor reports the exit.
+3. Claude reads `crewmate result <id>`.
 
-**Other agents (secondary).** Any agent with a shell can run the same `crewmate` commands. Outside Claude Code the command is installed with `npx crewmate@latest …` (if published to npm) or from a clone.
+**Flow C, critique.** `/crewmate:critique docs/specs/payment-design.md`
+1. crewmate starts one read-only job per ready vendor with the critique prompt (4.7) and prints the ids.
+2. Claude watches them all with one Monitor on `crewmate watch <id1> <id2>`.
+3. Claude presents the reports side by side and marks where vendors agree. Claude, the elephant, decides which findings matter; crewmate does not merge them with a model.
+
+### 3.2 Other agents (secondary)
+
+Any agent with a shell runs the same commands: `npx crewmate@latest …` if published to npm (section 8), or `node <clone>/plugins/crewmate/bin/crewmate …`. Jobs land in the same state folder as jobs started from Claude Code.
 
 ## 4. Proposed architecture
 
 ### 4.1 Shape
 
-```
+```text
 Claude Code
   ├─ slash commands (/crewmate:ask, critique, status, result, cancel, setup)
   ├─ skill: when and how to delegate, how to watch a job
-  └─ Bash tool ──► crewmate (plugin bin/, on PATH)
+  └─ Bash tool ──► node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" <command>
                       │
-                      ├─ foreground: runs the job in-process, streams events
-                      └─ --background: spawns a detached runner, returns job id
+                      ├─ ask / critique: spawn a detached runner per job, print job id(s)
+                      └─ watch / status / result / cancel: read and act on job state
                                    │
-                         job runner ──► vendor adapter ──► vendor CLI
-                                   │      (codex app-server | agy stream-json)
+                    runner (crewmate _run <id>) ──► vendor adapter ──► vendor CLI process
+                                   │                  codex: codex exec --json
+                                   │                  gemini: agy -p … --output-format stream-json
                                    ▼
-                         state dir: jobs/<id>/{job.json, events.ndjson, result.md}
+                    ~/.crewmate/workspaces/<slug>-<hash>/jobs/<id>/{job.json, events.ndjson, result.md}
 ```
 
-There is no MCP server, no subagent and no mailbox. One program does everything; the plugin is a thin layer of Markdown around it, which is how `codex-plugin-cc` is built.
+There is no MCP server, no subagent and no mailbox. One program implements every crewmate command; the plugin is Markdown around it, which is how `codex-plugin-cc` is built.
+
+Every job, foreground or not, runs through the same detached runner. "Foreground" only means the caller runs `watch` on the job right away. So there is one lifecycle for timeout, cancel and final state, and a job never dies because the command that started it was stopped.
 
 ### 4.2 Runtime and packaging
 
-- **Plain Node.js, ES modules, zero runtime dependencies** (only `node:` built-ins). `codex-plugin-cc` does the same; its `package.json` lists only dev dependencies. This is what makes a plugin install work, because Claude Code copies plugin files but does not run `npm install`.
-- Source is `.mjs` with JSDoc types, type-checked in CI with `tsc --checkJs`. No build step, so the files in the repo are the files that run.
-- Minimum Node version: 20 (the version on Aashish's machine is 20.19.4). `setup` checks it.
-- Repo layout: the repo root is a plugin marketplace (`.claude-plugin/marketplace.json`) listing one plugin at `plugins/crewmate/`, which holds `plugin.json`, `commands/`, `skills/`, `bin/crewmate` and `lib/`. Same layout as `codex-plugin-cc` and EGM.
-- Plugin `bin/` executables are added to the Bash tool's PATH by Claude Code, so commands and the skill call plain `crewmate …`.
+- **Plain Node.js 20+, ES modules, zero runtime dependencies** (only `node:` built-ins), like `codex-plugin-cc`, whose `package.json` lists only dev dependencies. Claude Code copies plugin files but does not run `npm install`, so this is what makes the two-command install work.
+- Source is `.mjs` with JSDoc types, type-checked in CI with `tsc --checkJs`. No build step: the files in the repo are the files that run.
+- **Repo layout:** the repo root is a plugin marketplace (`.claude-plugin/marketplace.json`) listing one plugin at `plugins/crewmate/`, which holds `.claude-plugin/plugin.json`, `commands/`, `skills/`, `bin/crewmate` (the entry point) and `lib/`. The marketplace-at-root layout matches `codex-plugin-cc` and EGM; `bin/` is crewmate's own, because the same file is also the npm entry point.
+- **Invocation inside Claude Code:** commands and the skill always call `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" …`, the form `codex-plugin-cc` uses everywhere. Nothing depends on Claude Code putting plugin `bin/` folders on PATH.
+- **Reused code:** `lib/` starts from these modules of `codex-plugin-cc`'s `scripts/lib/` (Apache-2.0, kept with its NOTICE and attribution):
+  - `state` (job records and retention), with its `CLAUDE_PLUGIN_DATA` read removed (4.5)
+  - `job-control`, `tracked-jobs` (detached spawn, pid tracking)
+  - `process` (process-group termination)
+  - `args`, `render`, `fs`
+  - `git` (working-tree and base-ref diffs, for `critique --diff`)
+
+  Everything Codex-specific in that repo (its `codex.mjs`, `app-server*`, the broker, hooks and session transfer) is not copied.
+- The old Bun/TypeScript code is removed (4.10). crewmate keeps its MIT license for its own code; the copied files keep Apache-2.0 headers.
 
 ### 4.3 Command-line interface
 
-All commands accept `--json` for machine-readable output. Exit codes: 0 done, 1 failed, 2 usage error, 3 vendor not ready, 4 timeout, 5 canceled.
+All commands accept `--json`. Exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | done (also: a job id was printed by `ask --detach` or `critique`) |
+| 1 | failed |
+| 2 | usage error |
+| 3 | vendor not ready (missing binary, or no first event in time) |
+| 4 | timeout |
+| 5 | canceled |
+| 6 | refused: a write job is already running in this workspace |
 
 | Command | What it does |
 |---|---|
-| `crewmate ask <vendor> [prompt]` | Runs one job. Flags: `--background`, `--resume`, `--model <id>`, `--effort <level>`, `--write`, `--timeout <dur>` (default 10m), `--prompt-file <path>`. Prompt can also come on stdin. |
-| `crewmate critique <path…>` | Starts one read-only job per ready vendor with the critique prompt (4.7). Always background; prints the job ids. |
-| `crewmate watch <id…>` | Prints one line per event for the given jobs (replaying events already written), and exits when all of them reach a final state. Designed to be run under Claude Code's Monitor. |
+| `crewmate ask <vendor> [prompt]` | Starts one job, then watches it inline unless `--detach`. Flags: `--detach`, `--resume [job-id]`, `--model <id>`, `--effort <level>`, `--write`, `--yolo`, `--timeout <duration>` (default 10m), `--prompt-file <path>`. The prompt can also come on stdin. |
+| `crewmate critique <path…>` | Starts one read-only job per ready vendor with the critique prompt (4.7). Flags: `--diff [ref]` (review `git diff` of the working tree, or against `ref`, instead of files), `--vendors <list>`. Prints the job ids and returns. |
+| `crewmate watch <id…>` | Prints events for the given jobs, replaying those already written, and exits when every job has a final state. Exit code: the worst final state among the jobs (failed over timeout over canceled over done). |
 | `crewmate status [id]` | Lists recent jobs in this workspace (id, vendor, state, age, summary), or one job in full. |
-| `crewmate result <id>` | Prints the job's final answer and its outcome block (state, duration, tokens, denied tools). |
+| `crewmate result <id>` | Prints the final answer and an outcome block: state, duration, tokens, denied tools, tool errors. |
 | `crewmate cancel <id>` | Stops a running job. |
-| `crewmate setup` | Checks Node, each vendor CLI (installed, version, signed in) and prints exact fix commands. |
+| `crewmate setup` | Checks Node, and for each vendor: binary on PATH, version, sign-in. Prints `ready` or the exact fix command per vendor. |
 
-Vendor names in v1: `codex`, `gemini`. `gemini` is driven through `agy`; the name is the model family, not the binary, so it survives future CLI changes.
+**`--resume`:** with no value, continues the most recent `ask` job for that vendor in this workspace (critique jobs are skipped); with a job id, continues that job's vendor conversation. Refused while another job for that vendor in this workspace is running.
+
+**Permission steps** are the same for both vendors: default read-only, `--write` (edits in the working directory), `--yolo` (everything, no prompts). They map to each vendor's own controls (4.4); crewmate writes no allow-lists of its own.
 
 ### 4.4 Vendor adapters
 
-Each vendor is one adapter module with the same small interface: check readiness, start a job, turn the CLI's output into crewmate events, cancel, and resume. Two adapters ship in v1:
+Each vendor is one adapter module with the same small interface: build the command line for a job (prompt, model, effort, permission step, resume id), turn each line of the CLI's output into crewmate events, and extract the final answer, conversation id, token usage and denials. Both v1 vendors are one child process per job that writes newline-delimited JSON, and both are canceled by killing the process group.
 
-**Codex: `codex app-server`.** A JSON-RPC connection over stdio, the same one `codex-plugin-cc` uses. The job starts or resumes a thread (`thread/start`, `thread/resume`) and runs one turn (`turn/start`). Notifications `item/started` and `item/completed` become tool events; `turn/completed` ends the job; `turn/interrupt` cancels it. The thread id is stored for `--resume`. Read-only by default; `--write` selects Codex's workspace-write sandbox. `--model` and `--effort` pass straight through.
-- Verified on this machine: `codex-cli 0.166.0` lists `app-server` as experimental.
-- Fallback if `app-server` is missing or its protocol changes: `codex exec --json`, which gives less detail but the same outcome. The adapter picks at start-up based on `codex --help` / a version check.
+**Codex: `codex exec --json`.** Recorded on macOS with codex-cli 0.166.0 (fixtures `codex.ndjson`, `codex-denied.ndjson` in the review folder):
+- `thread.started` carries `thread_id`, stored for `--resume` (`codex exec resume <thread_id> <prompt>`). Sessions are kept by default (`--ephemeral` is opt-in).
+- `item.started` / `item.completed` carry tool items (for example `command_execution` with `command`, `exit_code`, `status`) and `agent_message` text.
+- `turn.completed` carries token usage. `-o <file>` writes the final message straight to `result.md`.
+- Permission steps: `-s read-only` (default), `-s workspace-write` (`--write`), `--dangerously-bypass-approvals-and-sandbox` (`--yolo`). `--model` maps to `-m`, `--effort` to `-c model_reasoning_effort=<level>`.
+- stdin must be closed (`codex exec` otherwise waits on "Reading additional input from stdin").
+- **Limit:** Codex does not report a sandbox denial as an event. In the recorded read-only run that was asked to create a file, Codex did not attempt the command at all and only said, in its answer, that the filesystem is read-only. A blocked command that it does attempt shows as a `command_execution` with a non-zero exit. So for Codex, crewmate reports non-zero commands as **tool errors** and does not claim to detect denials.
 
-**Gemini: `agy -p … --output-format stream-json`.** One process per job. Verified on this machine (agy 1.4.12):
-- The stream is newline-delimited JSON with an `init` event (has `conversation_id`), `step_update` events (`step_type` of `user_input`, `agent_response` or `tool`, with `tool_name`, parameters, `state` of `ACTIVE`, `DONE` or `ERROR`, and token usage), and a final `result` event with `status` and `response`.
-- `--model gemini-3.8-flash-low` works; `agy models` lists the ids.
-- `--print-timeout` bounds the run (this fixes issue 2's hang at the source; crewmate also enforces its own timeout).
-- `--conversation <id>` resumes, used for `--resume`.
-- In headless mode agy denies any tool that would need a permission prompt (seen: `run_command` for `ls -la` came back `state: ERROR`, "permission check failed", while the final `result.status` was still `SUCCESS`). crewmate must therefore count denied tool steps and report them, and must not treat `SUCCESS` alone as a clean result.
-- `--write` passes a session-only `--settings` allow-list that permits file edits in the working directory. Shell commands stay denied unless the user also passes `--allow-shell`. `--dangerously-skip-permissions` is only passed if the user types `--yolo`.
+**Gemini: `agy -p <prompt> --output-format stream-json`.** Recorded on macOS with agy 1.4.12 (fixtures `agy2.ndjson`, `agy-plan.ndjson`):
+- `init` carries `conversation_id` (stored for `--resume`, which passes `--conversation <id>`) and `permission_mode`.
+- `step_update` events carry `step_type` (`user_input`, `agent_response`, `tool`), `tool_name`, parameters, `state` (`ACTIVE`, `DONE`, `ERROR`) and token usage. These become live events.
+- The final `result` event carries `status`, `response` and `denied_actions` (for example `[{"action":"command","display_name":"RunCommand"}]`). crewmate takes denials from `denied_actions`, not from parsing step error text.
+- A run can end `status: SUCCESS` with an empty `response` (recorded). crewmate ends such a job `failed` ("vendor returned no answer").
+- Permission steps: `--mode plan` (default; recorded: agy read files normally, and its one write went to its own plan folder under `~/.gemini/antigravity-cli/brain/`, not the project), `--mode accept-edits` (`--write`), `--dangerously-skip-permissions` (`--yolo`).
+- Read-only guard: in both recorded runs `init.permission_mode` was `request-review`, meaning agy denies anything that would need an approval prompt. The runner checks this value on default and `--write` runs and ends the job `failed` with a clear message if it differs (for example because the user's agy settings auto-approve). The builder must confirm what values agy reports when user settings change it.
+- `--model` passes through (`agy models` lists ids; `--model gemini-3.8-flash-low` worked). `--print-timeout` is set to the job timeout.
 
-**Later vendors.** An adapter is the unit of extension. A vendor whose CLI only prints text (for example Kimi) could use a small generic "print" adapter driven by a JSON description (command template, how to pass model and prompt). That adapter is not part of v1, and nothing in v1 should assume there are only two vendors.
+**First-event deadline (all vendors).** If a vendor prints no event within 45 seconds of starting, the job ends `failed` with exit code 3 and the `setup` fix text. This catches a signed-out or hung CLI (the agy hang above) without probing sign-in before every job; `--print-timeout` alone would only stop it at the full job timeout.
+
+**Later vendors** (Kimi, Cursor Agent, others) are new adapter modules. Nothing in v1 may assume there are only two.
 
 ### 4.5 Jobs and state
 
-- **State directory:** `${CLAUDE_PLUGIN_DATA}/workspaces/<slug>-<hash>/` when running inside Claude Code, else `~/.crewmate/workspaces/<slug>-<hash>/`. The hash is of the real path of the git root (or of the current directory outside git), the same scheme as `codex-plugin-cc`, so jobs from different projects never mix.
-- **Per job:** `jobs/<id>/job.json` (vendor, prompt summary, flags, pid, state, timestamps, vendor conversation id, outcome), `events.ndjson` (append-only crewmate events), `result.md` (final answer).
-- **Event format** (one JSON object per line): `{t, type, …}` where `type` is one of `started`, `tool` (name, short target, phase `start|done|error|denied`), `note` (short progress text from the vendor), `usage`, `end` (final state). `watch` prints these as single human-readable lines, for example `gemini ▶ read src/worker.ts`, `gemini ✗ denied run_command "ls -la"`, `gemini ■ done in 41s (6.9k in / 0.2k out), 1 tool denied`.
-- **Background runs** spawn a detached copy of crewmate (`crewmate _run <id>`) in its own process group, with stdout and stderr going to the job's log. The job keeps running if Claude Code exits.
-- **Staleness:** a job whose recorded pid is gone without an `end` event is shown as `failed (runner died)` by `status`, `watch` and `result`.
-- **Retention:** keep the newest 50 jobs per workspace; older job folders are deleted when a new job starts.
-- **One writer at a time:** a `--write` job takes a per-workspace lock; a second `--write` job in the same workspace is refused with the id of the one holding it. Read-only jobs never take the lock and can run in parallel. (No worktrees, so two writers editing the same tree is the main way to corrupt work.)
-- **Cancel:** sends the adapter's interrupt (Codex `turn/interrupt`), then SIGTERM to the process group, then SIGKILL after 5 seconds; the job ends as `canceled`.
+- **State folder:** always `~/.crewmate/workspaces/<slug>-<hash>/`, where `<slug>` is the folder name of the workspace root and `<hash>` the first 16 hex characters of the SHA-256 of its real path. The workspace root is the git root, or the current directory outside git. crewmate never reads `CLAUDE_PLUGIN_DATA` from the environment: in Claude Code that variable is substituted only inside plugin files, and when another plugin sets it for the Bash tool (seen on this machine: it pointed at the Codex plugin's folder) it would send crewmate's state into that plugin's folder. One fixed root also makes jobs started from a shell, Codex or agy visible from Claude Code.
+- **Per job:** `jobs/<id>/job.json` (vendor, prompt summary, flags, runner pid, runner start time, state, timestamps, vendor conversation id, outcome), `events.ndjson` (append-only crewmate events), `result.md` (final answer).
+- **Events** (one JSON object per line, with a timestamp and a `type`): `started`; `tool` (tool name, short target, phase `start`, `done`, `error` or `denied`); `note` (short vendor text, truncated to 200 characters); `usage`; `end` (final state and outcome). This list is the interface; how `watch` words each line is left to the builder.
+- **`watch` output volume:** consecutive tool events of the same kind are merged into one line (for example "read 14 files"), and `note` lines are throttled, so a job that reads hundreds of files stays well under Monitor's line limit and costs little context.
+- **Runner:** `ask` and `critique` spawn `crewmate _run <id>` detached in its own process group, with stdin closed and output to the job's log. It survives Claude Code exiting.
+- **Dead runner:** a job whose runner is gone without an `end` event is reported as `failed (runner died)` by `status`, `watch` and `result`, and `watch` exits instead of waiting. "Gone" means the pid is not running, or the process at that pid has a different start time than the one recorded (pid reuse).
+- **Retention:** keep the newest 50 finished jobs per workspace; running jobs are never pruned. Pruning happens when a new job starts.
+- **One writer at a time:** `ask --write` is refused (exit code 6, naming the running job) if this workspace already has a running job started with `--write` or `--yolo`. "Running" uses the same rule as dead-runner detection, so a crashed writer never blocks later jobs. Read-only jobs never wait and can run in parallel. The other collision, Claude editing files while a write job runs, is handled by a rule in the skill (4.6), not by code.
+- **Cancel:** SIGTERM to the runner's process group, then SIGKILL after 5 seconds; the job ends `canceled`. The runner pid and start time are checked first, so cancel never signals an unrelated process.
 
 ### 4.6 The Claude Code layer
 
-- **Commands** (`commands/*.md`) are short prompts that run the CLI through Bash. `ask` decides foreground or background: foreground unless the user passed `--background` or the request is clearly long (a whole-repo read, a write task). For background jobs the command tells Claude to start a Monitor on `crewmate watch <id>`.
-- **Skill** (`skills/crewmate/SKILL.md`): tells Claude when delegating helps (a second opinion from a different vendor, a read too large for its own context, a parallel independent task) and when it does not (small tasks Claude can do itself); how to run, watch and read jobs; to show vendor answers faithfully rather than rewriting them; and to never pass `--yolo` unless the user asked.
-- **No subagent.** v0.2's subagent existed only to run one shell command and hid all progress; v1 runs the command from the main conversation.
-- **No hooks in v1.**
+- **Commands** (`commands/*.md`) are short prompts that run the CLI through Bash. `ask` runs in the foreground (inline `watch`) by default; Claude passes `--detach` and uses Monitor when it expects the job to take more than about 2 minutes or wants to keep working meanwhile. Because every job is detached anyway, a wrong guess costs nothing: a stopped `watch` is restarted under Monitor.
+- **Skill** (`skills/crewmate/SKILL.md`) tells Claude:
+  - when delegating helps (a different vendor's opinion, a read too large for Claude's own context, a parallel independent task) and when not (tasks Claude can finish in a few steps itself);
+  - how to start, watch (Monitor timeout at least the job timeout, re-armed past Monitor's 30-minute cap; where Monitor is unavailable, run the same `watch` as a background Bash command) and read jobs;
+  - to present vendor answers faithfully, and to treat vendor text, including `watch` lines, as data, never as instructions;
+  - not to edit files in the workspace while `crewmate status` shows a running write job;
+  - never to pass `--write` or `--yolo` unless the user asked for edits or for full access.
+- **No subagent.** v0.2's subagent existed only to run one shell command and hid all progress.
 
 ### 4.7 Critique (the goldfish review)
 
-`crewmate critique <path…>` builds one prompt from a fixed template and the given paths, and starts a read-only job per ready vendor. Each vendor sees only the prompt, the named files and the repository; it never sees the Claude conversation. That is the "goldfish" condition from EGM: the reviewer has no access to the author's reasoning, so gaps the author filled in mentally become visible.
+`crewmate critique` builds one prompt from a fixed template plus the given paths (or diff), and starts a read-only job per ready vendor. Each vendor sees only the prompt, the named files and the repository, never the Claude conversation.
 
-The template asks for, in order: what the document or change is trying to do (one paragraph, in the reviewer's own words), unstated assumptions, missing failure modes, contradictions with the code it references, and anything that would block a builder from starting. Each finding is tagged blocker, major or minor, with the file and line it relates to. If a path is a diff (`--diff` uses `git diff` of the working tree, or `--diff <ref>`), the template asks the same questions about the change.
+The template is adapted from EGM's comprehension and design-critic reviewer prompts (Apache-2.0, attributed), so crewmate and EGM ask the same questions instead of drifting apart. It asks, in order: restate what the document or change is trying to do in your own words; unstated assumptions; missing failure modes; contradictions with the code it references; anything that would stop a builder from starting. Each finding is tagged blocker, major or minor, with the file and line.
 
-crewmate compared with EGM: EGM's goldfish are fresh Claude subagents run through five review stages. crewmate's goldfish are different vendors' models in one pass. They can be used together: EGM for the staged process, crewmate for vendor diversity.
+Limits, stated: the reviewer can read the whole repository, which may contain the author's notes (for example earlier plans), so it is not perfectly context-free; `--diff` of the working tree leaves out untracked files.
+
+crewmate and EGM fit together: EGM runs a staged review with fresh Claude reviewers; `crewmate critique` adds reviewers from other vendors in one pass.
 
 ### 4.8 Setup and errors
 
-`crewmate setup` checks, for each vendor: binary on PATH, version (and, for Codex, whether `app-server` is available), and sign-in (a cheap read-only probe with a short timeout; for agy, a signed-out probe must time out quickly rather than hang). It prints one line per vendor with `ready` or the exact fix command. `ask` on a vendor that is not ready fails at once with exit code 3 and the same fix text, instead of starting a job.
+`crewmate setup` checks, per vendor: binary on PATH; version; sign-in. The Codex sign-in check is `codex login status`, which calls no model. agy has no status command, so its check is one short prompt with a 30-second limit; it runs only in `setup`, never before each job. Output is one line per vendor: `ready`, or the exact fix (install command, or "run `agy` once to sign in").
+
+`ask` checks only that the vendor binary is on PATH before starting (exit code 3 with the fix text if not); a signed-out or hung vendor is caught by the 45-second first-event deadline (4.4).
 
 ### 4.9 Distribution
 
-- GitHub marketplace install as in Goal 1.
-- Submit the repo to claudecodemods.dev (the listing form takes a repo URL and optional mod path).
-- Optional: publish the same program to npm so `npx crewmate@latest` works outside Claude Code. The npm package name `crewmate` must be checked for availability first.
-- Before publishing, decide the name (section 8).
+- GitHub marketplace install (Goal 1).
+- Submit the repo to [claudecodemods.dev](https://claudecodemods.dev/submit), a third-party directory of Claude Code plugins (its form takes the repo URL and an optional path to the plugin inside it, here `plugins/crewmate`).
+- npm publishing for use outside Claude Code: decision in section 8.
 
 ### 4.10 Migration from v0.2
 
+v0.2 was never published (the README's npm section says "once published"), so migration is for Aashish's machine only.
+
 - Tag the current state `v0.2.0` before removing code.
-- Remove: `src/` (mailbox, supervisor, worker, sweeper, affinity recovery, contexts, MCP server and its nine tools, ACP runner and shim), `bin/crewmate` (Bun), `templates/crewmate.md` (the subagent), the `install-claude-agent` command, `scripts/` probes, `bun.lock`.
-- Keep and rewrite: `README.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`.
-- Ideas carried over from v0.2 code: agent-name validation against path traversal (job ids and vendor names are validated the same way), the read-sandbox rule (vendors run in the caller's directory only), model and effort passthrough.
-- Existing users' `~/.crewmate/<agent>/` mailbox folders are left alone. The README says how to remove them and the old `claude mcp` entry and `~/.claude/agents/crewmate.md`. `crewmate setup` detects the old subagent file and MCP entry and prints the removal commands.
+- Remove: `src/` (mailbox, supervisor, worker, the sweeper and affinity recovery that clean up stuck mailbox tasks, the persistent-context feature, the MCP server and its nine tools, the ACP runner and shim), the Bun `bin/crewmate`, `templates/crewmate.md` (the subagent), `scripts/` (probes), `bun.lock`, `tsconfig.json` (replaced by a `--checkJs` config).
+- Rewrite: `package.json` (Node, zero dependencies, `bin` pointing at `plugins/crewmate/bin/crewmate`, dev dependency `typescript` only), `README.md`, `AGENTS.md`, `CHANGELOG.md`. Keep `LICENSE`.
+- Carried over as ideas: name validation against path traversal (job ids and vendor names are validated the same way), vendors run only in the caller's directory, model and effort passthrough.
+- The README tells existing users to remove `~/.crewmate/<agent>/` mailbox folders, the `crewmate` MCP entry (`claude mcp remove crewmate`) and `~/.claude/agents/crewmate.md`. `setup` does not detect them.
 
 ### 4.11 Testing
 
-Following Aashish's testing rule (real flows, failure modes first, no tests that restate the code):
+Real flows, failure modes first, no tests that restate the code (Aashish's testing rule in his global `CLAUDE.md`).
 
-Failure modes to cover, one test each:
-1. A vendor exits non-zero or reports an error → state `failed`, never `done`.
-2. agy returns `result.status: SUCCESS` with denied tool steps → state `done` with the denied tools listed in the outcome and in `watch`.
-3. A vendor hangs → state `timeout` at the deadline, process group gone.
-4. `cancel` on a running job → `canceled`, process group gone.
-5. The runner is killed → `status` shows `failed (runner died)`.
-6. Signed-out or missing CLI → `ask` exits 3 at once with the fix text, no job folder left running.
-7. Second `--write` job in the same workspace → refused.
-8. `--resume` uses the stored conversation or thread id.
-9. Path-like vendor names or job ids are rejected.
+One test per failure mode, run through the real CLI against fake vendor CLIs that replay recorded output (the four fixtures in `egm-review-2026-11-01/`, copied to `tests/fixtures/`):
 
-How: a fake `codex app-server` and a fake `agy` (small scripts that replay recorded real output, including the denied-tool stream captured on 2026-11-01) drive the adapters through the real CLI. One end-to-end run per vendor against the real CLIs, run by hand before each release, saves its event log as the release artifact. Plugin install is checked by installing from a local marketplace path in a scratch Claude Code session.
+1. Vendor exits non-zero or reports an error → `failed`, never `done`.
+2. agy ends `SUCCESS` with `denied_actions` → `done`, exit code 0, denied tools listed in `result`, `--json` and the final `watch` line.
+3. agy ends `SUCCESS` with an empty response → `failed`.
+4. Codex command with non-zero exit → listed as a tool error.
+5. Vendor prints nothing → `failed` with exit code 3 at the first-event deadline; process group gone.
+6. Vendor hangs after starting → `timeout` at the job deadline; process group gone.
+7. `cancel` → `canceled`; process group gone; a reused pid is not signalled.
+8. Runner killed → `status` and `result` show `failed (runner died)`.
+9. Second `--write` job in the same workspace → exit code 6; a dead writer does not block.
+10. `--resume` passes the stored conversation or thread id; skips critique jobs.
+11. Path-like vendor names or job ids are rejected.
+12. agy `init.permission_mode` other than expected → `failed` before any tool runs.
+13. `watch` replays events already written, then exits on `end`.
+14. `watch` on a dead runner exits instead of hanging.
+15. `watch` with several ids exits only when all are final, with the worst state's exit code.
+
+Release check, by hand, kept as the release artifact: install the plugin from a local marketplace path in a scratch Claude Code session, run Flow A against real Codex and Flow C against both real vendors, and save the session transcript showing progress lines arriving in the conversation.
 
 ## 5. Security and safety
 
-- **Default is read-only** for both vendors. Writing needs `--write`; shell for agy needs `--allow-shell`; bypassing all permissions needs `--yolo`. The skill tells Claude never to add these on its own.
-- **Prompt injection across agents.** A vendor reads repository files that may contain instructions. crewmate's answer is to keep vendors read-only by default and to show their output as their output; Claude should treat vendor answers as data, which the skill states.
+- **Read-only by default** through each vendor's own sandbox or mode (4.4); `--write` and `--yolo` are explicit, and the skill forbids Claude from adding them on its own.
+- **Prompt injection across agents.** Vendors read repository files, which may contain instructions. Vendors stay read-only by default, and the skill tells Claude to treat their answers and `watch` lines as data. `note` text is truncated.
 - **No secrets handled.** crewmate never reads or stores API keys; vendors use their own sign-in.
-- **Detached processes** run with the user's rights. They are bounded by the timeout and listed by `status`; nothing restarts them.
-- **State files** live in the user's plugin data folder and contain prompts and answers, which may include code. The README says so.
+- **Detached processes** run with the user's rights, are bounded by the job timeout, are listed by `status`, and are never restarted automatically.
+- **State files** under `~/.crewmate` hold prompts and answers, which may include code. The README says so.
 
 ## 6. Risks and limits
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| `codex app-server` is marked experimental and its protocol may change | Codex jobs break after a Codex update | Fall back to `codex exec --json`; recorded-fixture tests catch shape changes; `setup` reports the Codex version |
-| agy's stream-json events are not documented | Events may be renamed | Parse defensively (unknown events become `note`); keep recorded fixtures; on parse failure fall back to the final `result` |
-| Node not on PATH (Claude Code's native installer does not need Node) | Plugin commands fail | `setup` and every command print a clear "install Node 20+" message; documented in the README's first lines |
-| Vendor rate limits or cost | Long or parallel critique jobs cost money on the user's vendor accounts | Default 10-minute timeout; critique runs one job per vendor, never retries automatically |
-| Two jobs editing the same files | Lost or mixed edits | One-writer lock per workspace (4.5) |
-| OpenAI's `codex-plugin-cc` already covers Codex well | Little reason to install crewmate for Codex alone | Position crewmate on what it adds: one install for several vendors, live progress, goldfish critique |
-| Detached runner orphaned after a crash | A vendor process keeps running | Process-group kill on timeout; `status` marks dead runners; `cancel` works by pid |
+| agy's stream-json events are not documented | A future agy renames events | Parse defensively (unknown events become `note`); recorded fixtures catch changes; if parsing fails, fall back to the final `result` event |
+| `codex exec --json` event names change | Codex jobs lose live events | Same as above; the final message comes from `-o` regardless |
+| Codex sandbox denials are invisible as events | A read-only Codex job may say it could not do something without crewmate listing a denial | Stated limit (4.4); non-zero commands are listed as tool errors |
+| Node not installed (Claude Code's native installer does not need Node) | Commands fail | Node 20+ is listed as a prerequisite in Goal 1 and the README's first lines; the error says so |
+| Monitor limits: expiry (5 min default, 30 max), automatic stop on too many lines, each line uses context | Progress stops arriving, or context fills | Monitor timeout ≥ job timeout and re-armed past 30 min; `watch` merges and throttles lines; background Bash as fallback (4.6) |
+| Vendor rate limits or cost | Long or parallel jobs use the user's vendor quota | 10-minute default timeout; one critique job per vendor; no automatic retries; no sign-in probe per job |
+| Claude edits files while a write job runs | Mixed edits | Skill rule (4.6) |
+| OpenAI's `codex-plugin-cc` already provides Codex delegation | Little reason to install crewmate for Codex alone | The README states what crewmate adds: several vendors in one install, live progress, goldfish critique |
+
+Limits: 50 finished jobs kept per workspace; one write job per workspace; read-only jobs unlimited (bounded by the user's vendor quotas).
 
 ## 7. Alternatives considered
 
-1. **Keep the MCP server and fix its progress** (forward real tool events as MCP progress notifications). Rejected: the MCP SDK and zod are runtime dependencies, which forces a bundle or an `npm i -g`; an MCP call is tied to the session and dies with it; progress shows in `/tasks` rather than in the conversation; and every agent Aashish uses has a shell, so a command-line program reaches more of them. An MCP adapter over the same engine can be added later if an agent without a shell needs it.
-2. **Keep Bun and ship compiled binaries** (`bun build --compile`). Rejected: per-platform binaries of tens of megabytes each in a plugin repo, and a release pipeline, to avoid a Node requirement that most coding-agent users already meet.
-3. **Use ACP for every vendor**, through crewmate's own client or `acpx`. Rejected for v1: neither Codex nor agy offers native ACP here (Codex needs a third-party adapter, agy has none), so ACP would be a shim over the same CLIs. Codex's `app-server` and agy's `stream-json` are each vendor's own structured output. If a vendor adds native ACP, an ACP adapter fits the adapter interface.
-4. **Copy firstmate** (interactive sessions in tmux, a watcher, worktrees, PRs). Rejected: it is a supervisor product of about 125,000 lines of bash; it reads the screen to learn state; and it relies on worktrees, which Aashish ruled out.
-5. **Depend on the existing projects** (install `codex-plugin-cc`, `gemini-mcp-tool` and PAL side by side). Rejected by the goal: three installs, three styles, three state stores and no shared critique.
-6. **Route at the API level instead** (9Router, claude-code-router: a local OpenAI-compatible proxy that swaps the model behind Claude Code and falls back between providers). Rejected as the design for crewmate: it changes which model Claude Code itself talks to, rather than letting Claude hand a task to another vendor's agent, with its own tools and sign-in, and get a second answer back. The two can coexist.
-7. **Keep the mailbox and worker pool as an optional mode.** Rejected (YAGNI): its only benefit, a queue shared between terminals, has no current user, and it is the source of the "task waits for `crewmate up`" failure.
+1. **Keep the MCP server and fix its progress.** Rejected: the MCP SDK and zod are runtime dependencies, which forces a bundle or an `npm i -g`; an MCP call is tied to the session; progress shows in `/tasks` rather than in the conversation; and every agent Aashish uses has a shell. An MCP adapter over the same engine can be added later for an agent without a shell.
+2. **Keep Bun and ship compiled binaries** (`bun build --compile`). Rejected: per-platform binaries of tens of megabytes in the plugin repo and a release pipeline, to avoid requiring Node, which crewmate's own reference (`codex-plugin-cc`) also requires.
+3. **ACP for every vendor**, through crewmate's own client or [`acpx`](https://github.com/openclaw/acpx). Rejected for v1: neither Codex nor agy offers native ACP here (Codex needs a third-party adapter; agy has none), so ACP would be a shim over the same CLIs, while `exec --json` and `stream-json` are each vendor's own structured output.
+4. **Codex through `codex app-server`** (what `codex-plugin-cc` uses). Rejected: app-server is marked experimental, needs a JSON-RPC client, and in `codex-plugin-cc` it mainly serves the broker, review gate and session transfer, which are non-goals. `codex exec --json` gives the thread id, tool events and usage (recorded), with the same process shape as agy.
+5. **Fork `codex-plugin-cc` and add an agy adapter.** Rejected: about 3,500 lines would come along that v1 rules out (broker, app-server client, session transfer, stop gate, the 1,219-line Codex-specific `codex.mjs`). v1 copies only the generic job modules (4.2).
+6. **Use Claude Code's background Bash instead of a detached runner.** Rejected: a background Bash command ends with the session, which breaks Goal 3. `codex-plugin-cc` spawns its own detached worker for the same reason.
+7. **Copy [firstmate](https://github.com/kunchenguid/firstmate)** (interactive sessions in tmux, a watcher, worktrees, PRs). Rejected: it is a supervisor product, mostly bash, reads the screen to learn state, and relies on worktrees, which Aashish ruled out.
+8. **Install the existing projects side by side** (`codex-plugin-cc`, `gemini-mcp-tool`, PAL). Rejected by the goal: three installs, three styles, three state stores, no shared critique.
+9. **Route at the API level** ([9Router](https://github.com/decolua/9router), [claude-code-router](https://github.com/musistudio/claude-code-router): a local proxy that swaps the model behind Claude Code and falls back between providers). Rejected as crewmate's design: it changes which model Claude Code itself talks to, rather than letting Claude hand a task to another vendor's agent, with that agent's tools and sign-in, and get a second answer back. The two can be used together.
+10. **Keep the mailbox and worker pool as an optional mode.** Rejected: its only benefit, a queue shared between terminals, has no current user, and it is the cause of the "task waits for `crewmate up`" failure.
 
-## 8. Decisions still open (for Aashish)
+## 8. Decisions still open (Aashish)
 
 1. **Name.** firstmate calls its workers "crewmates", so search results will collide. Keep `crewmate`, or rename before the first public release?
-2. **npm publishing** for use outside Claude Code: in v1, or later?
+2. **npm publishing** in v1 (`npx crewmate@latest` for use outside Claude Code), or later? The npm name must be checked for availability either way.
 
 ## 9. Left to the builder
 
-- Internal module layout under `lib/`, event line wording, and the exact critique prompt text (within 4.7's content).
-- How `ask` words its foreground or background choice in the command prompt.
-- The exact agy `--settings` allow-list for `--write`, provided it allows file edits in the working directory only.
-- Whether `watch` with several ids prefixes each line with the vendor or the job id.
+- Internal module layout under `lib/` beyond the reused modules.
+- Wording of `watch` lines and the outcome block; the merge and throttle thresholds, within "a job reading hundreds of files stays under Monitor's line limit".
+- Exact critique template text, within 4.7.
+- Two checks before relying on them, with the fallback named in 4.4 if either fails:
+  - what `init.permission_mode` agy reports when user settings auto-approve;
+  - that Monitor is available to every Claude Code user. If it isn't, background Bash becomes the default.
