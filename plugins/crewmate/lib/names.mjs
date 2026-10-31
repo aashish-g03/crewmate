@@ -27,6 +27,8 @@ export function assertName(kind, value) {
   return value;
 }
 
+// Node timers overflow above 2^31-1 ms (about 24.8 days) and fire at once.
+const MAX_TIMER_MS = 2_147_483_647;
 const UNIT_MS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
 
 /**
@@ -39,5 +41,6 @@ export function parseDuration(s) {
   if (!m) throw new UsageError(`invalid duration "${s}" (use e.g. 90s, 10m, 1h)`);
   const ms = Number(m[1]) * UNIT_MS[m[2]];
   if (ms <= 0) throw new UsageError(`duration must be positive: "${s}"`);
+  if (ms > MAX_TIMER_MS) throw new UsageError(`duration "${s}" is too long (max about 596h)`);
   return ms;
 }

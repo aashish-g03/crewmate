@@ -20,8 +20,13 @@ import path from 'node:path';
 export const FINAL_STATES = ['done', 'failed', 'timeout', 'canceled'];
 
 /** @param {string} vendor */
+const ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+/** @param {string} vendor */
 export function newJobId(vendor) {
-  const rand = crypto.randomBytes(4).toString('hex').replace(/[^a-z0-9]/g, '').padEnd(4, '0').slice(0, 4);
+  const bytes = crypto.randomBytes(4);
+  let rand = '';
+  for (const b of bytes) rand += ALPHABET[b % ALPHABET.length];
   return `${vendor}-${Date.now().toString(36)}-${rand}`;
 }
 
@@ -39,11 +44,21 @@ export function jobDir(ws, id) {
  * Create the job folder and write job.json with state `queued`.
  * @param {Workspace} ws
  * @param {{vendor: string, kind: string, promptSummary: string, flags: JobFlags}} fields
+ * @param {(vendor: string) => string} [makeId]
  * @returns {Job}
  */
-export function createJob(ws, fields) {
-  const id = newJobId(fields.vendor);
-  fs.mkdirSync(jobDir(ws, id), { recursive: true });
+export function createJob(ws, fields, makeId = newJobId) {
+  fs.mkdirSync(jobsRoot(ws), { recursive: true });
+  let id;
+  for (let attempt = 0; ; attempt++) {
+    id = makeId(fields.vendor);
+    try {
+      fs.mkdirSync(jobDir(ws, id)); // not recursive: an existing folder means an id collision
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST' || attempt >= 5) throw err;
+    }
+  }
   /** @type {Job} */
   const job = {
     id,

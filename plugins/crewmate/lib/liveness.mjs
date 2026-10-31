@@ -8,7 +8,11 @@ import { FINAL_STATES } from './jobs.mjs';
  */
 export function processStartTime(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
-  const r = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' });
+  // Fixed TZ and locale: the runner records this string and other processes compare it.
+  const r = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+    encoding: 'utf8',
+    env: { ...process.env, LC_ALL: 'C', LANG: 'C', TZ: 'UTC' },
+  });
   if (r.status !== 0) return null;
   const out = r.stdout.trim();
   return out || null;
@@ -44,4 +48,9 @@ export function effectiveState(job, now = Date.now(), env = process.env) {
 /** @param {any} job */
 export function isFinal(job) {
   return FINAL_STATES.includes(effectiveState(job).state);
+}
+
+/** Final, and no live vendor process left that only this record can find. @param {any} job */
+export function isPrunable(job) {
+  return isFinal(job) && !isAlive(job.vendorProcess);
 }

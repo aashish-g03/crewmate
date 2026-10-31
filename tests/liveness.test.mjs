@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { processStartTime, isAlive, effectiveState, isFinal } from '../plugins/crewmate/lib/liveness.mjs';
+import { processStartTime, isAlive, effectiveState, isFinal, isPrunable } from '../plugins/crewmate/lib/liveness.mjs';
 import { waitFor } from './helpers.mjs';
 
 function sleeper() {
@@ -48,4 +48,28 @@ test('effectiveState: final states are returned as stored', () => {
   assert.deepEqual(effectiveState({ ...base, state: 'done', reason: null }), { state: 'done', reason: null });
   assert.equal(isFinal({ ...base, state: 'timeout' }), true);
   assert.equal(isFinal({ ...base, state: 'queued' }), false);
+});
+
+test('CP1-1: processStartTime is the same whatever TZ/LANG the caller has', () => {
+  const c = sleeper();
+  const saved = { TZ: process.env.TZ, LC_ALL: process.env.LC_ALL };
+  process.env.TZ = 'UTC';
+  const a = processStartTime(c.pid);
+  process.env.TZ = 'Asia/Kolkata';
+  process.env.LC_ALL = 'fr_FR.UTF-8';
+  const b = processStartTime(c.pid);
+  for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  c.kill('SIGKILL');
+  assert.ok(a);
+  assert.equal(a, b);
+});
+
+test('CP1-5: a job whose vendor process is still alive is not prunable', () => {
+  const c = sleeper();
+  const vendorProcess = { pid: c.pid, startTime: processStartTime(c.pid) };
+  const job = { ...base, runner: { pid: 999999, startTime: 'x' }, vendorProcess };
+  assert.equal(isFinal(job), true);
+  assert.equal(isPrunable(job), false);
+  assert.equal(isPrunable({ ...job, vendorProcess: null }), true);
+  c.kill('SIGKILL');
 });

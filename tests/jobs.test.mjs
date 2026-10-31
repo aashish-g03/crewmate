@@ -110,3 +110,17 @@ test('listJobs is newest first', () => {
   const ids = seed(w, 3, 'done', 5_000);
   assert.deepEqual(listJobs(w).map((j) => j.id), [...ids].reverse());
 });
+
+test('CP1-2: parseDuration rejects values a timer cannot hold', () => {
+  assert.equal(parseDuration('596h'), 596 * 3600000);
+  assert.throws(() => parseDuration('1000h'), UsageError);
+});
+
+test('CP1-4: an id collision never overwrites an existing job', () => {
+  const w = ws();
+  const first = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'first', flags: {} });
+  const ids = [first.id, 'codex-zzz-0001'];
+  const second = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'second', flags: {} }, () => ids.shift());
+  assert.equal(second.id, 'codex-zzz-0001');
+  assert.equal(readJob(w, first.id).promptSummary, 'first');
+});

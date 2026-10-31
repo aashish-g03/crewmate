@@ -30,18 +30,22 @@ export function fakePath(fakes = ['codex', 'agy']) {
   return `${dir}:/usr/bin:/bin`;
 }
 
-/** Run the real CLI. Resolves {code, stdout, stderr}. */
+/**
+ * Run the real CLI with CREWMATE_HOME always set (a fresh temp home unless `home` is given),
+ * so tests never touch the user's real ~/.crewmate. Resolves {code, stdout, stderr, home}.
+ */
 export function runCli(args, { cwd = ROOT, env = {}, input, fakes = ['codex', 'agy'], home } = {}) {
+  const crewHome = home ?? tempHome().home;
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [BIN, ...args], {
       cwd,
-      env: { PATH: fakePath(fakes), HOME: home ?? os.homedir(), ...env },
+      env: { PATH: fakePath(fakes), HOME: crewHome, CREWMATE_HOME: crewHome, ...env },
     });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
+    child.on('close', (code) => resolve({ code, stdout, stderr, home: crewHome }));
     if (input !== undefined) child.stdin.end(input);
     else child.stdin.end();
   });
