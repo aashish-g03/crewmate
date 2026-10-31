@@ -1,0 +1,191 @@
+// Spec §4.11 failure modes (T-numbers are spec ids, not a sequence).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { resolveWorkspace } from '../plugins/crewmate/lib/workspace.mjs';
+import { createJob, readJob, jobDir, writeJob } from '../plugins/crewmate/lib/jobs.mjs';
+import { effectiveState } from '../plugins/crewmate/lib/liveness.mjs';
+import { readEvents } from '../plugins/crewmate/lib/events.mjs';
+import { spawnRunner } from '../plugins/crewmate/lib/runner.mjs';
+import { acquireWriter, releaseWriter } from '../plugins/crewmate/lib/lock.mjs';
+import { FIXTURES, fakePath, tempDir, tempHome, waitFor } from './helpers.mjs';
+
+const FINAL = ['done', 'failed', 'timeout', 'canceled'];
+
+function startJob(vendor, { flags = {}, env = {}, fakes, prompt = 'hello' } = {}) {
+  const { home } = tempHome();
+  const w = resolveWorkspace(tempDir(), { CREWMATE_HOME: home });
+  const job = createJob(w, { vendor, kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 10_000, ...flags } });
+  fs.writeFileSync(path.join(jobDir(w, job.id), 'prompt.txt'), prompt);
+  const PATH = fakePath(fakes ?? [vendor === 'codex' ? 'codex' : 'agy']);
+  spawnRunner(w, job.id, { PATH, HOME: home, CREWMATE_HOME: home, ...env });
+  return { w, id: job.id, home };
+}
+
+function fixture(name) {
+  return path.join(FIXTURES, name);
+}
+
+async function finalOf(w, id, ms = 10_000) {
+  return waitFor(() => {
+    const j = readJob(w, id);
+    if (!j) return null;
+    const s = effectiveState(j);
+    return FINAL.includes(s.state) ? { ...j, ...s } : null;
+  }, ms);
+}
+
+function groupGone(pid) {
+  try {
+    process.kill(-pid, 0);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+test('happy path: codex.ndjson ends done with the answer in result.md and an end event', async () => {
+  const { w, id } = startJob('codex', { env: { FAKE_FIXTURE: fixture('codex.ndjson'), FAKE_ANSWER: 'the answer' } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'done');
+  assert.equal(fs.readFileSync(path.join(jobDir(w, id), 'result.md'), 'utf8'), 'the answer');
+  assert.equal(j.vendorConversationId, '01a193d0-87dd-7341-9392-cbf04ee3bb21');
+  const ev = readEvents(jobDir(w, id));
+  assert.equal(ev[0].type, 'started');
+  assert.equal(ev.at(-1).type, 'end');
+  assert.deepEqual(ev.map((e) => e.n), ev.map((_, i) => i + 1));
+});
+
+test('(T1) vendor exits non-zero → failed', async () => {
+  const { w, id } = startJob('codex', { env: { FAKE_FIXTURE: fixture('codex.ndjson'), FAKE_EXIT: '2' } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'failed');
+  assert.match(j.reason, /exit 2/);
+});
+
+test('(T2) gemini SUCCESS with denied_actions and an answer → done, denials listed, live tool error', async () => {
+  const { w, id } = startJob('gemini', { env: { FAKE_FIXTURE: fixture('agy-denied-with-answer.ndjson') } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'done');
+  assert.deepEqual(j.outcome.deniedTools, ['RunCommand']);
+  assert.ok(readEvents(jobDir(w, id)).some((e) => e.type === 'tool' && e.phase === 'error'));
+  assert.equal(fs.readFileSync(path.join(jobDir(w, id), 'result.md'), 'utf8'), 'done');
+});
+
+test('(T3) gemini SUCCESS with an empty response → failed, vendor returned no answer', async () => {
+  const { w, id } = startJob('gemini', { env: { FAKE_FIXTURE: fixture('agy2.ndjson') } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'failed');
+  assert.equal(j.reason, 'vendor returned no answer');
+});
+
+test('(T4) codex non-zero command → done with one tool error', async () => {
+  const { w, id } = startJob('codex', { env: { FAKE_FIXTURE: fixture('codex-tool-error.ndjson') } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'done');
+  assert.equal(j.outcome.toolErrors.length, 1);
+});
+
+test('(T5) vendor prints nothing → failed at the first-model-event deadline, group gone', async () => {
+  const { w, id } = startJob('codex', { env: { FAKE_HANG: '1', CREWMATE_FIRST_EVENT_MS: '300', CREWMATE_CANCEL_GRACE_MS: '300' } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'failed');
+  assert.match(j.reason, /^vendor did not respond/);
+  assert.ok(groupGone(j.vendorProcess.pid));
+});
+
+test('(T5b) gemini init + user_input only → failed (user_input is not a model event)', async () => {
+  const { w, id } = startJob('gemini', {
+    env: { FAKE_FIXTURE: fixture('agy-user-input-only.ndjson'), FAKE_HANG_AFTER: '3', CREWMATE_FIRST_EVENT_MS: '300', CREWMATE_CANCEL_GRACE_MS: '300' },
+  });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'failed');
+  assert.match(j.reason, /^vendor did not respond/);
+});
+
+test('(T6) vendor hangs after starting → timeout at the job deadline, group gone', async () => {
+  const { w, id } = startJob('codex', {
+    flags: { timeoutMs: 500 },
+    env: { FAKE_FIXTURE: fixture('codex.ndjson'), FAKE_HANG_AFTER: '3', CREWMATE_CANCEL_GRACE_MS: '300' },
+  });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'timeout');
+  assert.ok(groupGone(j.vendorProcess.pid));
+});
+
+test('(T8) runner killed mid-job → failed / runner died', async () => {
+  const { w, id } = startJob('codex', { env: { FAKE_FIXTURE: fixture('codex.ndjson'), FAKE_DELAY_MS: '300' } });
+  const runner = await waitFor(() => readJob(w, id)?.runner);
+  process.kill(runner.pid, 'SIGKILL');
+  const j = await finalOf(w, id);
+  assert.deepEqual([j.state, j.reason], ['failed', 'runner died']);
+});
+
+test('(T12) gemini permission_mode other than request-review → failed before any tool event', async () => {
+  const { w, id } = startJob('gemini', { env: { FAKE_FIXTURE: fixture('agy-permission-auto.ndjson'), CREWMATE_CANCEL_GRACE_MS: '300' } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'failed');
+  assert.match(j.reason, /permission mode is auto, expected request-review/);
+  assert.ok(!readEvents(jobDir(w, id)).some((e) => e.type === 'tool'));
+});
+
+test('vendor binary cannot be started → failed, could not start codex', async () => {
+  const dir = tempDir();
+  fs.writeFileSync(path.join(dir, 'codex'), 'not executable', { mode: 0o644 });
+  fs.symlinkSync(process.execPath, path.join(dir, 'node'));
+  const { home } = tempHome();
+  const w = resolveWorkspace(tempDir(), { CREWMATE_HOME: home });
+  const job = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 5000 } });
+  fs.writeFileSync(path.join(jobDir(w, job.id), 'prompt.txt'), 'x');
+  spawnRunner(w, job.id, { PATH: `${dir}:/usr/bin:/bin`, CREWMATE_HOME: home, HOME: home });
+  const j = await finalOf(w, job.id);
+  assert.equal(j.state, 'failed');
+  assert.match(j.reason, /^could not start codex/);
+});
+
+test('a write job releases the writer lock at its end', async () => {
+  const { home } = tempHome();
+  const w = resolveWorkspace(tempDir(), { CREWMATE_HOME: home });
+  const job = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 5000, write: true } });
+  fs.writeFileSync(path.join(jobDir(w, job.id), 'prompt.txt'), 'x');
+  assert.deepEqual(acquireWriter(w, job.id), { ok: true });
+  spawnRunner(w, job.id, { PATH: fakePath(['codex']), CREWMATE_HOME: home, HOME: home, FAKE_FIXTURE: fixture('codex.ndjson') });
+  await finalOf(w, job.id);
+  assert.equal(fs.existsSync(path.join(w.stateDir, 'writer.lock')), false);
+});
+
+function lockWs() {
+  const { home } = tempHome();
+  const w = resolveWorkspace(tempDir(), { CREWMATE_HOME: home });
+  fs.mkdirSync(w.stateDir, { recursive: true });
+  return w;
+}
+
+test('acquireWriter: a fresh lock whose holder has no job.json yet blocks', () => {
+  const w = lockWs();
+  fs.writeFileSync(path.join(w.stateDir, 'writer.lock'), 'codex-new-aaaa');
+  assert.deepEqual(acquireWriter(w, 'codex-me-bbbb'), { ok: false, holder: 'codex-new-aaaa' });
+});
+
+test('acquireWriter: a holder that is done is taken over', () => {
+  const w = lockWs();
+  const holder = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: {} });
+  writeJob(w, { ...holder, state: 'done' });
+  fs.writeFileSync(path.join(w.stateDir, 'writer.lock'), holder.id);
+  assert.deepEqual(acquireWriter(w, 'codex-me-bbbb'), { ok: true });
+  assert.equal(fs.readFileSync(path.join(w.stateDir, 'writer.lock'), 'utf8'), 'codex-me-bbbb');
+});
+
+test('acquireWriter: an old lock with no job.json counts as dead', () => {
+  const w = lockWs();
+  const lock = path.join(w.stateDir, 'writer.lock');
+  fs.writeFileSync(lock, 'codex-gone-aaaa');
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(lock, old, old);
+  assert.deepEqual(acquireWriter(w, 'codex-me-bbbb', { CREWMATE_SPAWN_GRACE_MS: '100' }), { ok: true });
+  releaseWriter(w, 'someone-else');
+  assert.equal(fs.existsSync(lock), true, 'release by a non-holder is a no-op');
+  releaseWriter(w, 'codex-me-bbbb');
+  assert.equal(fs.existsSync(lock), false);
+});
