@@ -18,6 +18,7 @@ function file(dir) {
  * @param {Event} ev  caller supplies `n`
  */
 export function appendEvent(dir, ev) {
+  /** @type {Record<string, any>} */
   const out = { ...ev, t: new Date().toISOString() };
   if (out.type === 'note' && typeof out.text === 'string' && out.text.length > NOTE_MAX) {
     out.text = `${out.text.slice(0, NOTE_MAX - 1)}…`;
