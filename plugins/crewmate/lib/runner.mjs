@@ -164,9 +164,13 @@ export function runJob(ws, jobId, env) {
     );
     timers.push(setTimeout(() => end('timeout', `no result within ${Math.round((job.flags?.timeoutMs ?? 600_000) / 1000)}s`), job.flags?.timeoutMs ?? 600_000));
 
-    child.on('close', (code) => {
-      childExited = true;
-      if (ended) return;
+    // Decide only after BOTH the process has exited and readline has delivered every line:
+    // the child's 'close' can fire before readline emits its last buffered lines.
+    let exitCode = /** @type {number|null|undefined} */ (undefined);
+    let stdoutDone = false;
+    const settle = () => {
+      if (ended || exitCode === undefined || !stdoutDone) return;
+      const code = exitCode;
       const parsed = parser.finish();
       if (code !== 0 || parsed.vendorError) {
         end('failed', parsed.vendorError ?? `exit ${code}`, code);
@@ -182,6 +186,15 @@ export function runJob(ws, jobId, env) {
       }
       if (!answer.trim()) end('failed', 'vendor returned no answer', code);
       else end('done', null, code);
+    };
+    rl.on('close', () => {
+      stdoutDone = true;
+      settle();
+    });
+    child.on('exit', (code, sig) => {
+      childExited = true;
+      exitCode = code ?? (sig ? 128 : null);
+      settle();
     });
   });
 }

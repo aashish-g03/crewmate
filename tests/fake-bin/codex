@@ -24,6 +24,6 @@ else {
   else {
     const o = argv.indexOf('-o');
     if (o >= 0) fs.writeFileSync(argv[o + 1], env.FAKE_ANSWER ?? 'done');
-    process.exit(Number(env.FAKE_EXIT ?? 0));
+    process.exitCode = Number(env.FAKE_EXIT ?? 0); // not process.exit(): it drops stdout still queued for a pipe
   }
 }

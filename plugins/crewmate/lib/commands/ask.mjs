@@ -145,6 +145,6 @@ export async function run(argv, io) {
   }
   io.stdout.write(options.json ? `${JSON.stringify({ jobId: res.jobId })}\n` : `${res.jobId}\n`);
   if (options.detach) return 0;
-  // Task 8 replaces this with an inline `watch`.
-  return 0;
+  const watch = await import('./watch.mjs');
+  return watch.run([res.jobId], io);
 }

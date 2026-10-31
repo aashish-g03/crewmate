@@ -21,5 +21,5 @@ else {
     i++;
   }
   if (i < lines.length || hangAfter <= lines.length) hang();
-  else process.exit(Number(env.FAKE_EXIT ?? 0));
+  else process.exitCode = Number(env.FAKE_EXIT ?? 0); // not process.exit(): it drops stdout still queued for a pipe
 }
