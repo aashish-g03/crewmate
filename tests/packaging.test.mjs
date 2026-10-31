@@ -47,3 +47,22 @@ test('unknown command exits 2', () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /usage/i);
 });
+
+test('commands and skill always call through ${CLAUDE_PLUGIN_ROOT}, never a bare crewmate', () => {
+  const files = [
+    ...fs.readdirSync(path.join(ROOT, 'plugins/crewmate/commands')).map((f) => path.join(ROOT, 'plugins/crewmate/commands', f)),
+    path.join(ROOT, 'plugins/crewmate/skills/crewmate/SKILL.md'),
+  ];
+  const names = files.map((f) => path.basename(f)).sort();
+  assert.deepEqual(names, ['SKILL.md', 'ask.md', 'cancel.md', 'critique.md', 'result.md', 'setup.md', 'status.md']);
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    assert.ok(src.includes('${CLAUDE_PLUGIN_ROOT}/bin/crewmate'), `${f} uses the plugin root`);
+    for (const line of src.split('\n')) assert.doesNotMatch(line, /^\s*\$?\s*crewmate\s+(ask|critique|watch|status|result|cancel|setup)\b/, `${f}: bare call: ${line}`);
+  }
+});
+
+test('the skill carries the testing rule for delegated test work', () => {
+  const skill = fs.readFileSync(path.join(ROOT, 'plugins/crewmate/skills/crewmate/SKILL.md'), 'utf8');
+  assert.match(skill, /testing-rule\.md/);
+});
