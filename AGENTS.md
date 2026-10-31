@@ -16,7 +16,7 @@ crewmate v1 is a Claude Code plugin around one zero-dependency Node.js CLI. Desi
 - `npm run e2e` — the standalone end-to-end check against the real CLIs (`scripts/e2e-check.mjs`).
 
 ## Test-only environment overrides
-`CREWMATE_HOME` (replaces the home folder), `CREWMATE_FIRST_EVENT_MS`, `CREWMATE_CANCEL_GRACE_MS`, `CREWMATE_SPAWN_GRACE_MS`, `CREWMATE_PROBE_MS`. Fakes read `FAKE_FIXTURE`, `FAKE_DELAY_MS`, `FAKE_HANG`, `FAKE_HANG_AFTER`, `FAKE_EXIT`, `FAKE_ANSWER`, `FAKE_ARGV_LOG`, `FAKE_LOGIN_EXIT`, `FAKE_STDERR`, `FAKE_GRANDCHILD_PID_FILE`, `FAKE_BACKGROUND_HOLD`.
+`CREWMATE_HOME` (replaces the home folder), `CREWMATE_FIRST_EVENT_MS`, `CREWMATE_CANCEL_GRACE_MS`, `CREWMATE_SPAWN_GRACE_MS`, `CREWMATE_PROBE_MS`, `CREWMATE_BRIEF_EVERY_MS`, `CREWMATE_LOCK_TEST_PAUSE_MS` (widens the lock race window in tests). Fakes read `FAKE_FIXTURE`, `FAKE_DELAY_MS`, `FAKE_HANG`, `FAKE_HANG_AFTER`, `FAKE_EXIT`, `FAKE_ANSWER`, `FAKE_ARGV_LOG`, `FAKE_LOGIN_EXIT`, `FAKE_STDERR`, `FAKE_GRANDCHILD_PID_FILE`, `FAKE_BACKGROUND_HOLD`, `FAKE_PWD_FILE`, `FAKE_FIXTURE_RESUME` (agy fixture used when `--conversation` is passed).
 
 ## Rules
 - No runtime dependencies: only `node:` built-ins and relative imports in `plugins/crewmate/`.

@@ -299,3 +299,37 @@ test('gemini: the continuation happens at most once', async () => {
   assert.match(j.reason, /^vendor returned no answer/);
   assert.equal(fs.readFileSync(log, 'utf8').trim().split('\n').length, 2);
 });
+
+test('lock: two contenders reclaiming the same stale lock never both succeed', async () => {
+  const { home } = tempHome();
+  const cwd = tempDir();
+  const w = resolveWorkspace(cwd, { CREWMATE_HOME: home });
+  fs.mkdirSync(w.stateDir, { recursive: true });
+  const holder = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { write: true } });
+  writeJob(w, { ...holder, state: 'done' });
+  fs.writeFileSync(path.join(w.stateDir, 'writer.lock'), holder.id);
+  // Staggered pauses: both check the stale holder; A unlinks and takes the lock at ~150 ms; B, still
+  // holding its stale check, unlinks at ~700 ms. Without serialization B deletes A's fresh lock.
+  const child = (me, pause) =>
+    new Promise((resolve) => {
+      const c = spawnProc(process.execPath, [path.join(FIXTURES, '..', 'lock-race.child.mjs'), cwd, me], {
+        env: { ...process.env, CREWMATE_HOME: home, CREWMATE_LOCK_TEST_PAUSE_MS: String(pause) },
+      });
+      let out = '';
+      c.stdout.on('data', (d) => (out += d));
+      c.on('close', () => resolve(out));
+    });
+  const results = await Promise.all([child('codex-a-aaaa', 150), child('codex-b-bbbb', 700)]);
+  assert.equal(results.filter((r) => r === 'ok').length, 1, results.join(','));
+});
+
+test('lock: a holder whose job folder exists but job.json is unreadable is not reclaimed', () => {
+  const w = lockWs();
+  const holder = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { write: true } });
+  fs.writeFileSync(path.join(jobDir(w, holder.id), 'job.json'), '{not json');
+  const lock = path.join(w.stateDir, 'writer.lock');
+  fs.writeFileSync(lock, holder.id);
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(lock, old, old);
+  assert.equal(acquireWriter(w, 'codex-me-bbbb', { CREWMATE_SPAWN_GRACE_MS: '100' }).ok, false);
+});
