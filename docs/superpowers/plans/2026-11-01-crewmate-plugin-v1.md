@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Revision 2 (2026-11-01), after the EGM implementation-readiness review (reports in [`egm-review-2026-11-01/`](egm-review-2026-11-01/)).
+Revision 3 (2026-11-01), after the EGM implementation-readiness review and its re-audit (reports in [`egm-review-2026-11-01/`](egm-review-2026-11-01/)).
 
 **Goal:** Replace crewmate v0.2 (Bun mailbox, worker pool, MCP server, subagent) with a zero-dependency Node.js program, shipped as a Claude Code plugin, that runs Codex and Gemini jobs as detached processes with live, accurate progress.
 
@@ -52,7 +52,7 @@ Revision 2 (2026-11-01), after the EGM implementation-readiness review (reports 
   - retention: 50 finished jobs per workspace
   - `note` text: truncated to 200 characters
   - `setup` probe limit for agy: 30 s
-  - `critique --diff` limit: 200,000 bytes
+  - prompt size limit: 100,000 bytes for the final prompt (template plus target, or the `ask` prompt). The prompt is a single argv string, and Linux caps one argument at 131,072 bytes. A larger prompt exits 2 before any job is created.
 - **Duration grammar** for `--timeout`: `^\d+(ms|s|m|h)$`. Anything else exits 2.
 - **Test-only environment overrides** are documented in `AGENTS.md`, not in the README:
   - `CREWMATE_HOME`: replaces the home folder
@@ -116,15 +116,14 @@ tests/
 ### Task 1: Clean slate, packaging and copied modules
 
 **Files:**
-- Delete: `src/`, `bin/crewmate` (Bun), `templates/crewmate.md` (and the `templates/` folder), `scripts/`, `bun.lock`, `tsconfig.json`, `.claude/agents/gemini-worker.md`, `.claude/scheduled_tasks.lock`.
+- Delete: `src/`, `bin/crewmate` (Bun), `templates/crewmate.md` (and the `templates/` folder), `scripts/` (the v0.2 probes; Task 11 adds a new `scripts/e2e-check.mjs`), `bun.lock`, `.claude/agents/gemini-worker.md`, `.claude/scheduled_tasks.lock`.
 - Keep unchanged: `docs/superpowers/plans/2026-05-04-acp-transport.md` (the spec links it as history), `.gitignore` (already ignores `node_modules/`, `*.txt`, `.crewmate/`).
 - Create:
   - `.claude-plugin/marketplace.json`, `NOTICE`
   - `plugins/crewmate/.claude-plugin/plugin.json`, `plugins/crewmate/bin/crewmate`
   - `plugins/crewmate/lib/vendored/{process,args,fs,git}.mjs`
-  - `tsconfig.json`
   - `tests/fixtures/` with the five recorded files: `codex.ndjson`, `codex-denied.ndjson`, `agy2.ndjson`, `agy-plan.ndjson`, `agy-accept-edits.ndjson`
-- Replace entirely: `package.json`, `.claude/CLAUDE.md`.
+- Replace entirely: `package.json`, `tsconfig.json`, `.claude/CLAUDE.md`.
 - Test: `tests/packaging.test.mjs`.
 
 **Interfaces:**
@@ -193,7 +192,7 @@ tests/
   - `readJob(ws, id): Job | null`.
   - `writeJob(ws, job): void`: atomic (write `job.json.tmp`, then `rename`). After creation, only the runner calls it, plus `cancel` in its one fallback (Task 8).
   - `listJobs(ws): Job[]`: newest first by `createdAt`, read from the job folders (no shared index).
-  - `pruneJobs(ws, isFinal: (job) => boolean, keep = 50): string[]`: deletes the folders of finished jobs beyond the newest `keep` and returns their ids. Running jobs are never touched.
+  - `pruneJobs(ws, isFinal: (job) => boolean, keep = 50): string[]`: deletes the folders of finished jobs beyond the newest `keep` and returns their ids. Running jobs are never touched, and neither is the job named in `<stateDir>/writer.lock` if that file exists.
   - `Job` (JSDoc typedef):
     ```text
     {id, vendor, kind: 'ask'|'critique', promptSummary /* first line, ≤80 chars */,
@@ -216,6 +215,7 @@ tests/
   - A subfolder of a `git init` folder resolves to the git root's realpath.
   - `createJob` then `readJob` round-trips. A leftover `job.json.tmp` never shadows `job.json`.
   - `pruneJobs` with 52 finished and 3 running jobs → removes exactly 2 finished folders; all 3 running jobs remain.
+  - `pruneJobs` with 52 finished jobs, where the oldest is named in `writer.lock` → that job's folder is kept.
 - [ ] **Step 2: Run** `node --test tests/jobs.test.mjs` → FAIL.
 - [ ] **Step 3: Implement** the three modules and the helpers per the Interfaces block.
 - [ ] **Step 4: Run** → PASS.
@@ -298,6 +298,8 @@ tests/
 **Interfaces:**
 - **Produces:**
   - `getAdapter(vendor: 'codex'|'gemini'): Adapter`.
+  - `findOnPath(name: string, env = process.env): string | null`, in `vendors/index.mjs`. It checks each PATH entry with `fs.accessSync(…, X_OK)` and never runs the binary.
+  - `INSTALL_TEXT = {codex: 'npm i -g @openai/codex', gemini: 'curl -fsSL https://antigravity.google/cli/install.sh | bash'}`, in `vendors/index.mjs`. `ask` (Task 7) and `setup` (Task 9) both import these.
   - `Adapter`:
     ```text
     { binary: 'codex' | 'agy',
@@ -328,6 +330,7 @@ tests/
   - `model`: `['-m', m]`; `effort`: `['-c', `model_reasoning_effort="${e}"`]`.
 - **Codex parser:**
   - `thread.started` → `conversationId`, no event.
+  - `turn.started` → no event.
   - `item.started` / `item.completed` with `item.type === 'command_execution'` → a `tool` event:
     - `name: 'shell'`, `target`: the command cut to 80 characters;
     - phase `start` on `item.started`;
@@ -336,6 +339,7 @@ tests/
   - `turn.completed.usage` → a `usage` event and `usage`.
   - `turn.failed` or `error` → `vendorError`.
   - `isModelEvent`: `type` starts with `item.`, or is `turn.completed` or `turn.failed`. `thread.started` and `turn.started` do not count.
+  - **Plan ruling:** spec §4.4 counts "any Codex `turn.*`" and "any agy `step_update`" as model events. This plan narrows that: `turn.started` and the agy `user_input` step do not count, because both appear before the model replies.
 - **Gemini `buildArgs`** (`binary: 'agy'`):
   ```text
   ['-p', prompt, '--output-format','stream-json','--print-timeout', `${Math.ceil(timeoutMs/1000) + 30}s`, ...mode, ...model, ...effort, ...resume]
@@ -348,6 +352,7 @@ tests/
   - `model`: `['--model', m]`; `effort`: `['--effort', e]`; `resume`: `['--conversation', id]`.
 - **Gemini parser:**
   - `init` → `conversationId` and `permissionMode`, no event.
+  - `step_update` with `step_type === 'user_input'` → no event.
   - `step_update` with `step_type === 'tool'` → a `tool` event:
     - `name: tool_name`, `target`: the first string value in `tool_info.parameters`, cut to 80 characters;
     - phase `start` for the first `ACTIVE` of each `step_index` (later repeats emit nothing), `done` for `DONE`, `error` for `ERROR`.
@@ -364,7 +369,7 @@ tests/
     - fake `codex` given `login status` prints `Logged in` and exits with `$FAKE_LOGIN_EXIT` (default 0);
     - fake `agy` given `models` prints one model id.
   - **Recording calls:** if `$FAKE_ARGV_LOG` is set, the fake appends its argv as one JSON line.
-  - **Replay:** otherwise it replays `$FAKE_FIXTURE` line by line, waiting `$FAKE_DELAY_MS` (default 0) between lines. The codex fake then writes `$FAKE_ANSWER` (default `done`) to the file after `-o`. Finally it exits with `$FAKE_EXIT` (default 0).
+  - **Replay:** then (whether or not it logged argv) it replays `$FAKE_FIXTURE` line by line, waiting `$FAKE_DELAY_MS` (default 0) between lines. The codex fake then writes `$FAKE_ANSWER` (default `done`) to the file after `-o`. Finally it exits with `$FAKE_EXIT` (default 0).
   - **Hanging:** `FAKE_HANG=1` prints nothing and sleeps; `FAKE_HANG_AFTER=n` prints n lines, then sleeps.
 
 - [ ] **Step 1: Write the failing tests.** Run the real fixtures through `createParser()`:
@@ -372,6 +377,7 @@ tests/
   - `codex-denied.ndjson` → no `tool` events, empty `toolErrors`, and exactly two notes. This is the limit in spec §4.4: Codex reports no sandbox denial as an event.
   - `agy2.ndjson` → a `tool` `error` for `run_command`; `deniedTools` `['RunCommand']`; `answer` `''`; `permissionMode` `request-review`.
   - `agy-plan.ndjson` → `read_file` and `write_file` start/done; `vendorError` null; no empty note.
+  - No event at all is produced for codex `turn.started` or for the agy `user_input` step. Every recording's `user_input` line yields `[]`.
   - `isModelEvent`:
     - false for agy `init` and the `user_input` step;
     - false for codex `thread.started` and `turn.started`;
@@ -407,8 +413,11 @@ tests/
 - **Produces from `lock.mjs`:**
   - `acquireWriter(ws, jobId): {ok: true} | {ok: false, holder}`:
     1. `fs.openSync(<stateDir>/writer.lock, 'wx')`, then write `jobId`.
-    2. On `EEXIST`, read the holder id. If `readJob(holder)` is `null`, or `isFinal(holder job)` is false, return `{ok: false, holder}`. A missing record counts as alive, which closes the race where the lock exists before its job record.
-    3. If the holder is final, re-read the file. Unlink it only if it still names the same holder, then retry `wx` once.
+    2. On `EEXIST`, read the holder id.
+       - If `readJob(holder)` is `null` and the lock file's mtime is younger than the spawn grace, return `{ok: false, holder}`. This closes the race where the lock exists before its job record.
+       - A missing record with an older lock counts as dead (its folder was pruned or removed by hand).
+       - A holder whose job exists and is not final → `{ok: false, holder}`.
+    3. If the holder is final or dead, re-read the file. Unlink it only if it still names the same holder, then retry `wx` once.
     4. After any successful create, re-read the file and return `ok` only if it names `jobId`.
 
     A takeover race between two callers over a stale lock is narrow and accepted for a single-user tool.
@@ -421,7 +430,7 @@ tests/
     - it does not write `job.json`.
   - `run(['_run', jobId], io)` performs `runJob`. The runner owns `job.json` from here on, and does these steps in order:
     1. Record `runner = {pid: process.pid, startTime: processStartTime(process.pid)}`, set `state: 'running'` and `startedAt`, and append `started`.
-    2. Spawn `adapter.binary` with `buildArgs(job, prompt, <jobDir>/result.md)`: `cwd` `ws.root`, `detached: true` (its own group), stdin `'ignore'`. Record `vendorProcess = {pid, startTime}`.
+    2. Spawn `adapter.binary` with `buildArgs(job, prompt, <jobDir>/result.md)`: `cwd` `ws.root`, `detached: true` (its own group), stdin `'ignore'`. Record `vendorProcess = {pid, startTime}`. A spawn `error` event (`ENOENT`, `E2BIG`, …) ends the job `failed`, reason `could not start <binary>: <code>`.
     3. Feed each stdout line to the parser; append the returned events with an incrementing `n`. Vendor stderr goes to `runner.log`.
     4. **Permission guard.** When `expectedPermissionMode(job)` is set and the parser has a `permissionMode` that differs from it: end `failed` with reason `agy permission mode is <x>, expected request-review (check your agy settings)`.
     5. **First-model-event deadline** (`CREWMATE_FIRST_EVENT_MS`, default 45000). If no line with `isModelEvent` true has arrived by then, end `failed` with reason `vendor did not respond — run /crewmate:setup`.
@@ -448,14 +457,16 @@ tests/
     - (T3) gemini with `agy2.ndjson` → `failed`, `vendor returned no answer`.
     - (T4) codex with `codex-tool-error.ndjson` → `done`; `toolErrors` has length 1.
     - (T5) `FAKE_HANG=1` with `CREWMATE_FIRST_EVENT_MS=300` → `failed`, `vendor did not respond …`; `process.kill(-vendorProcess.pid, 0)` throws.
-    - (T5b) gemini with `agy-user-input-only.ndjson` and `FAKE_HANG_AFTER=2`, with a 300 ms deadline → `failed` (the `user_input` step is not a model event).
+    - (T5b) gemini with `agy-user-input-only.ndjson` and `FAKE_HANG_AFTER=3`, with a 300 ms deadline → `failed` (the `user_input` step is not a model event). `FAKE_HANG_AFTER=3` prints the marker line, `init` and `user_input`.
     - (T6) `FAKE_HANG_AFTER=3` with `timeoutMs` 500 → `timeout`; the vendor group is gone.
     - (T8) `kill -9` the runner mid-job (`FAKE_DELAY_MS=200`) → `effectiveState` is `failed` / `runner died`. The vendor process is still alive; this is cleaned up by `cancel` in Task 8.
     - (T12) gemini with `agy-permission-auto.ndjson` → `failed` before any `tool` event.
     - **Lock:**
       - a write job's lock is released at its end;
       - `acquireWriter` against a lock whose holder has no `job.json` → `{ok: false}`;
-      - against a holder that is `done` → `ok`.
+      - against a holder that is `done` → `ok`;
+      - against a lock with no `job.json` and an mtime older than the spawn grace (set `CREWMATE_SPAWN_GRACE_MS=100`) → `ok`.
+    - A vendor binary that does not exist (a PATH holding only a non-executable file named `codex`) → `failed`, reason starting `could not start codex`.
 - [ ] **Step 2: Run** `node --test tests/runner.test.mjs` → FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** → PASS.
@@ -468,16 +479,15 @@ tests/
 - Test: `tests/ask.test.mjs`
 
 **Interfaces:**
-- **Consumes:** Tasks 2–6, `parseArgs`, `readStdinIfPiped`, `ensureAbsolutePath`, `resolveReviewTarget`, `collectReviewContext`.
-- **Produces:** `findOnPath(name, env): string | null`, exported from `ask.mjs`. It checks each PATH entry with `fs.accessSync(…, X_OK)` and never runs the binary.
+- **Consumes:** Tasks 2–6, `findOnPath` and `INSTALL_TEXT` (Task 5), `parseArgs`, `readStdinIfPiped`, `ensureAbsolutePath`, `resolveReviewTarget`, `collectReviewContext`.
 - **Optional-value flags.** `--resume` and `--diff` may carry a value only in the `--flag=value` form. Before calling `parseArgs`, take `--resume=<id>` and `--diff=<ref>` out of `argv` yourself. Then declare `resume` and `diff` as boolean options. A bare `--resume` or `--diff` never consumes the next token.
 - **`ask <vendor> [prompt]`:**
   - Flags: `--detach --resume[=<jobId>] --model <m> --effort <e> --write --yolo --timeout <duration> --prompt-file <path> --json`.
-  - **Prompt** comes from the positional; else from `--prompt-file` (read as UTF-8); else from `readStdinIfPiped()`. If it is empty after trimming → exit 2.
+  - **Prompt** comes from the positional; else from `--prompt-file` (read as UTF-8); else from `readStdinIfPiped()`. If it is empty after trimming → exit 2. If it is over 100,000 bytes → exit 2, `prompt too large`.
   - **Checks, in order:**
     1. `assertName('vendor')`.
     2. `parseDuration` for `--timeout`.
-    3. `findOnPath(adapter.binary)`; if not found → exit 3 with the install text from Task 9.
+    3. `findOnPath(adapter.binary)`; if not found → exit 3 with `INSTALL_TEXT[vendor]`.
     4. `--resume`:
        - target = the given job id, else the newest `ask` job for this vendor with a `vendorConversationId`;
        - no target → exit 2, `nothing to resume`;
@@ -491,15 +501,16 @@ tests/
   - **Output:** the job id on stdout (`--json`: `{"jobId": "…"}`). Then, without `--detach`, return `watch.run([jobId], io)`. Until Task 8 lands, return 0 instead, and leave a comment saying Task 8 replaces it.
 - **`critique (<path>… | --diff[=<ref>])`:**
   - Flags: `--vendors codex,gemini` (default both), `--json`.
+  - No paths and no `--diff` → exit 2, `nothing to critique`.
   - Vendors whose binary `findOnPath` finds are started. If none → exit 7.
   - **Target text:**
     - **Paths:** each path is made absolute with `ensureAbsolutePath(cwd, p)` and must exist (else exit 2). The target is the list of absolute paths.
-    - **`--diff`:** outside git → exit 2, `--diff needs a git repository`. Otherwise:
+    - **`--diff`:** if `git -C <cwd> rev-parse --is-inside-work-tree` does not print `true` → exit 2, `--diff needs a git repository`. Otherwise, inside a `try`:
       ```text
       ctx = collectReviewContext(ws.root, resolveReviewTarget(ws.root, ref ? {base: ref} : {scope: 'working-tree'}), {includeDiff: true})
       ```
-      If `ctx.diffBytes > 200000` → exit 2, `diff too large; pass file paths instead`. The target is `ctx.summary + '\n\n' + ctx.content`.
-  - **Prompt:** `critique-template.md`, with `{{TARGET}}` replaced by the target text.
+      Any thrown error, including `ENOBUFS` for a diff over git's 1 MB buffer, → exit 2, `diff too large or unreadable; pass file paths instead`. The target is `ctx.summary + '\n\n' + ctx.content`, which includes untracked file bodies.
+  - **Prompt:** `critique-template.md`, with `{{TARGET}}` replaced by the target text. If the final prompt is over 100,000 bytes → exit 2, `diff too large; pass file paths instead`. This size is measured on the final prompt, not on `diffBytes`.
   - **Jobs:** one read-only `kind: 'critique'` job per started vendor. Prints one job id per line (`--json`: `{"jobIds": […]}`) and exits 0.
 - **`critique-template.md`:**
   - It opens with an HTML comment crediting google/elephant-goldfish-model (Apache-2.0), `agents/comprehension.md` and `agents/design_critic.md`.
@@ -518,7 +529,9 @@ tests/
     - Once the first job has ended, `--write` → exit 0.
     - A lock left by a `kill -9`'d runner does not block.
     - `--yolo` is refused the same way.
-  - Review Focus 5: two `ask codex --write --detach x` started with `Promise.all` → exactly one exits 0 and one exits 6.
+  - Review Focus 5: two `ask codex --write --detach x` started with `Promise.all` (`FAKE_DELAY_MS=300`) → exactly one exits 0 and one exits 6.
+  - A prompt of 100,001 bytes → exit 2, `prompt too large`, and no job folder.
+  - `critique` with no arguments → exit 2. `critique --diff` on a working tree whose final prompt would exceed 100,000 bytes → exit 2.
   - (T10)
     - `--resume` after a finished codex job → `$FAKE_ARGV_LOG` shows `resume` followed by the fixture's `thread_id`.
     - `--resume=<that job id>` does the same.
@@ -547,7 +560,7 @@ tests/
 - **All four commands:** an unknown job id → exit 2, `no such job`.
 - **`watch <id>… [--since=<n>]`:**
   - Every 250 ms, run `readEvents(dir, lastN)` per job.
-  - **Line format:** one line per event, prefixed with the vendor name.
+  - **Line format:** one line per event, prefixed with the vendor name and the event's sequence number (`codex #12 …`), so a caller can re-arm with `--since=12`. A merged line carries the number of its last event.
   - **Merging:**
     - Consecutive `tool` events with the same `name` and phase `done` are merged into one line, `<vendor> <name> ×N`. It is flushed when a different event arrives, or 2 s after the first merged event.
     - `start` events of a merged run are not printed.
@@ -597,8 +610,7 @@ tests/
 - Test: `tests/setup.test.mjs`
 
 **Interfaces:**
-- **Consumes:** `findOnPath` (Task 7).
-- **Produces:** `INSTALL_TEXT = {codex: 'npm i -g @openai/codex', gemini: 'curl -fsSL https://antigravity.google/cli/install.sh | bash'}`, also used by `ask` for exit 3.
+- **Consumes:** `findOnPath` and `INSTALL_TEXT` (Task 5).
 - **Probes:** every probe uses `spawnSync` with an explicit `timeout`. A run that ends by signal or timeout (`status === null`) counts as not ready.
 - **`setup [--json]`:**
   - **Node:** the major version of `process.versions.node` must be at least 20.
@@ -632,12 +644,13 @@ tests/
 - **Commands, general:**
   - Each has frontmatter `description`, `argument-hint` and `allowed-tools: Bash(node:*)`; `ask` and `critique` also allow `Monitor`.
   - The body tells Claude how to run `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" <cmd> …`.
-  - For `ask` and `critique`, the user's free text goes in on stdin:
+  - For `ask`, the user's free text goes in on stdin:
     ```text
     node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" ask <vendor> [flags] <<'CREWMATE_PROMPT'
     <the user's text>
     CREWMATE_PROMPT
     ```
+  - For `critique`, the paths and flags (`--diff`, `--diff=<ref>`, `--vendors`) are passed as arguments, each path single-quoted. There is no stdin.
 - **`ask.md`:**
   - **Detach** (`--detach`, then a Monitor on `watch <id>`) when any of these hold:
     - the request reads the whole repository or a whole folder;
@@ -694,6 +707,46 @@ tests/
      - If no: write "signed-out run not recorded (declined)" in the release check file.
 - [ ] **Step 7: Commit** `docs: 1.0.0 release check`.
 
+### Task 11: Standalone end-to-end check and whole-branch code review
+
+Requested by Aashish (2026-11-01): proper testing at the end of implementation with a standalone script, and a superpowers code review.
+
+**Files:**
+- Create: `scripts/e2e-check.mjs`, `docs/release/1.0.0-e2e.md` (written by the script)
+- Modify: `AGENTS.md` (how to run it), `package.json` (script `e2e` = `node scripts/e2e-check.mjs`)
+
+**Interfaces:**
+- **What it is:** `node scripts/e2e-check.mjs [--vendors codex,gemini] [--keep]` is a standalone script, separate from `node --test`.
+  - It uses no fakes: it drives the real `plugins/crewmate/bin/crewmate` against the real `codex` and `agy` on PATH.
+  - It needs no network access beyond what those CLIs use.
+  - Vendors missing from PATH are reported as `SKIP` with the reason, never as `PASS`.
+- **Setup:**
+  - A throwaway git repo in a temp folder holding one small source file (`calc.js`, a 10-line function with an off-by-one bug) and one commit.
+  - `CREWMATE_HOME` points at a temp folder, so the user's real `~/.crewmate` is untouched.
+- **Checks, run in order and per vendor where noted.** Each records the command, exit code, elapsed time and the assertion result.
+  1. **setup:** `setup --json` exits 0, and each vendor under test reports `ready: true`.
+  2. **foreground ask** (per vendor): `ask <v> "In one sentence, what does calc.js do?"` exits 0; `result --json` has state `done` and a non-empty answer; `events.ndjson` contains `started` and `end`, plus at least one `tool` event or `note`.
+  3. **detach and watch** (per vendor): `ask <v> --detach …` prints a job id within 2 s; `watch <id>` prints at least one line before its `end` line and exits 0.
+  4. **resume** (per vendor): `ask <v> --resume "What file did you just describe?"` exits 0, and the answer mentions `calc.js`.
+  5. **read-only holds** (per vendor): `ask <v> "Create a file named made-by-<v>.txt containing hi"` without `--write` → the file does not exist afterwards. The result lists a denial or a tool error, or the answer says it could not write.
+  6. **write and lock** (codex): `ask codex --write --detach "Fix the off-by-one bug in calc.js"`, then immediately `ask codex --write x` → exits 6. After `watch` ends, `calc.js` has changed (`git diff --quiet` exits 1).
+  7. **cancel** (per vendor): `ask <v> --detach "Read every file in this repository and summarize each one in detail"`; after the first `tool` or `note` event, `cancel <id>` → `watch` exits 5, and no process from the job's runner or vendor group is alive (`ps` check by pid and start time).
+  8. **critique:** `critique --diff` (after step 6's change) prints one id per available vendor; `watch` on all ids exits 0; each `result` is non-empty.
+  9. **status:** `status --json` lists every job created above with a final state.
+- **Report:** `docs/release/1.0.0-e2e.md` has one table row per check (`PASS` / `FAIL` / `SKIP`, the evidence, the time), the CLI versions and the date. The script exits 1 if any check is `FAIL`. `--keep` leaves the temp folders in place for inspection.
+
+- [ ] **Step 1: Write** `scripts/e2e-check.mjs` per the Interfaces block.
+- [ ] **Step 2: Dry run** with `--vendors codex` against a PATH that has no codex → every check is `SKIP` with a reason, and the exit code is 0.
+- [ ] **Step 3: Run it for real:** `node scripts/e2e-check.mjs`. Expected: every check `PASS` for both vendors. A `FAIL` is debugged with superpowers:systematic-debugging; fix the cause and re-run the full script.
+- [ ] **Step 4: Commit** the script and the passing report: `test: standalone end-to-end check against real codex and agy`.
+- [ ] **Step 5: Whole-branch code review** with superpowers:requesting-code-review.
+  - Run it on Opus over the diff from `v0.2-final` to `HEAD`, giving it the spec, this plan and the e2e report.
+  - Fix every Critical and Important finding.
+  - Re-run `npm test`, `npm run typecheck` and `node scripts/e2e-check.mjs`.
+  - Then run a scoped re-review on the fix commits only.
+  - Record the review result and the re-review verdict at the end of `docs/release/1.0.0-e2e.md`.
+- [ ] **Step 6: Commit** `docs: 1.0.0 code review and re-check`.
+
 ---
 
 ## Spec coverage
@@ -714,4 +767,5 @@ tests/
 | §4.8 setup | 9 |
 | §4.10 migration | 1, 10 |
 | §4.11 tests T1–T16, release check | 6, 7, 8, 10 |
+| End-to-end check against real CLIs, whole-branch code review (Aashish's request) | 11 |
 | §5 security rules | 5 (permission flags), 10 (skill) |
