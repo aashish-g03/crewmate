@@ -40,7 +40,7 @@ Two known bugs are in scope (not yet filed as GitHub issues): a failed task is r
    /plugin install crewmate@crewmate
    ```
    Other prerequisites: Node.js 20 or later, and the vendor CLIs the user wants (`codex`, `agy`), installed and signed in. `/crewmate:setup` says exactly what is missing and how to fix it.
-2. **Live progress in the conversation.** While a job runs, the user and Claude see one line per event (job started, tool started or finished, tool denied, job ended) without opening another terminal.
+2. **Live progress in the conversation.** While a job runs, the user and Claude see one line per event (job started, tool started, finished or failed, job ended with any denied tools listed) without opening another terminal.
 3. **Jobs that outlive the call.** Every job runs as a detached process. Claude keeps working, and is told when the job ends. Jobs survive the Claude session ending; their results can be read later.
 4. **Accurate final states.** A job ends as exactly one of `done`, `failed`, `timeout`, `canceled`. Tools the vendor denied are listed in the job's outcome, never hidden.
 5. **Goldfish critique.** `/crewmate:critique <path or diff>` sends a document or change to every ready vendor in parallel, with no conversation context, and returns each report.
@@ -139,7 +139,7 @@ All commands accept `--json`. Exit codes:
 | 0 | done (also: a job id was printed by `ask --detach` or `critique`) |
 | 1 | failed |
 | 2 | usage error |
-| 3 | vendor not ready (missing binary, or no first event in time) |
+| 3 | vendor not ready: binary not on PATH, so no job was started |
 | 4 | timeout |
 | 5 | canceled |
 | 6 | refused: a write job is already running in this workspace |
@@ -176,10 +176,10 @@ Each vendor is one adapter module with the same small interface: build the comma
 - The final `result` event carries `status`, `response` and `denied_actions` (for example `[{"action":"command","display_name":"RunCommand"}]`). crewmate takes denials from `denied_actions`, not from parsing step error text.
 - A run can end `status: SUCCESS` with an empty `response` (recorded). crewmate ends such a job `failed` ("vendor returned no answer").
 - Permission steps: `--mode plan` (default; recorded: agy read files normally, and its one write went to its own plan folder under `~/.gemini/antigravity-cli/brain/`, not the project), `--mode accept-edits` (`--write`), `--dangerously-skip-permissions` (`--yolo`).
-- Read-only guard: in both recorded runs `init.permission_mode` was `request-review`, meaning agy denies anything that would need an approval prompt. The runner checks this value on default and `--write` runs and ends the job `failed` with a clear message if it differs (for example because the user's agy settings auto-approve). The builder must confirm what values agy reports when user settings change it.
+- Read-only guard: in all three recorded runs (default, `--mode plan`, `--mode accept-edits`) `init.permission_mode` was `request-review`, meaning agy denies anything that would need an approval prompt. The runner checks this value on default and `--write` runs and ends the job `failed` with a message naming the setting if it differs (for example because the user's agy settings auto-approve). The builder must confirm what value agy reports when user settings do auto-approve.
 - `--model` passes through (`agy models` lists ids; `--model gemini-3.8-flash-low` worked). `--print-timeout` is set to the job timeout.
 
-**First-event deadline (all vendors).** If a vendor prints no event within 45 seconds of starting, the job ends `failed` with exit code 3 and the `setup` fix text. This catches a signed-out or hung CLI (the agy hang above) without probing sign-in before every job; `--print-timeout` alone would only stop it at the full job timeout.
+**First-event deadline (all vendors).** If a vendor prints no event within 45 seconds of starting, the job ends `failed` (exit code 1, like any failed job) with reason "vendor did not respond" and the `setup` fix text in its outcome. This catches a signed-out or hung CLI (the agy hang above) without probing sign-in before every job; `--print-timeout` alone would only stop it at the full job timeout.
 
 **Later vendors** (Kimi, Cursor Agent, others) are new adapter modules. Nothing in v1 may assume there are only two.
 
@@ -187,7 +187,7 @@ Each vendor is one adapter module with the same small interface: build the comma
 
 - **State folder:** always `~/.crewmate/workspaces/<slug>-<hash>/`, where `<slug>` is the folder name of the workspace root and `<hash>` the first 16 hex characters of the SHA-256 of its real path. The workspace root is the git root, or the current directory outside git. crewmate never reads `CLAUDE_PLUGIN_DATA` from the environment: in Claude Code that variable is substituted only inside plugin files, and when another plugin sets it for the Bash tool (seen on this machine: it pointed at the Codex plugin's folder) it would send crewmate's state into that plugin's folder. One fixed root also makes jobs started from a shell, Codex or agy visible from Claude Code.
 - **Per job:** `jobs/<id>/job.json` (vendor, prompt summary, flags, runner pid, runner start time, state, timestamps, vendor conversation id, outcome), `events.ndjson` (append-only crewmate events), `result.md` (final answer).
-- **Events** (one JSON object per line, with a timestamp and a `type`): `started`; `tool` (tool name, short target, phase `start`, `done`, `error` or `denied`); `note` (short vendor text, truncated to 200 characters); `usage`; `end` (final state and outcome). This list is the interface; how `watch` words each line is left to the builder.
+- **Events** (one JSON object per line, with a timestamp and a `type`): `started`; `tool` (tool name, short target, phase `start`, `done` or `error`; an agy step in state `ERROR`, including a permission denial, is a live `error`); `note` (short vendor text, truncated to 200 characters); `usage`; `end` (final state and outcome, including the denied-tools list, which for agy comes from `denied_actions`). This list is the interface; how `watch` words each line is left to the builder.
 - **`watch` output volume:** consecutive tool events of the same kind are merged into one line (for example "read 14 files"), and `note` lines are throttled, so a job that reads hundreds of files stays well under Monitor's line limit and costs little context.
 - **Runner:** `ask` and `critique` spawn `crewmate _run <id>` detached in its own process group, with stdin closed and output to the job's log. It survives Claude Code exiting.
 - **Dead runner:** a job whose runner is gone without an `end` event is reported as `failed (runner died)` by `status`, `watch` and `result`, and `watch` exits instead of waiting. "Gone" means the pid is not running, or the process at that pid has a different start time than the one recorded (pid reuse).
@@ -245,10 +245,10 @@ Real flows, failure modes first, no tests that restate the code (Aashish's testi
 One test per failure mode, run through the real CLI against fake vendor CLIs that replay recorded output (the four fixtures in `egm-review-2026-11-01/`, copied to `tests/fixtures/`):
 
 1. Vendor exits non-zero or reports an error → `failed`, never `done`.
-2. agy ends `SUCCESS` with `denied_actions` → `done`, exit code 0, denied tools listed in `result`, `--json` and the final `watch` line.
+2. agy ends `SUCCESS` with `denied_actions` → `done`, exit code 0; the denied step shows live as a tool `error` line, and the denied tools are listed in `result`, `--json` and the final `watch` line.
 3. agy ends `SUCCESS` with an empty response → `failed`.
 4. Codex command with non-zero exit → listed as a tool error.
-5. Vendor prints nothing → `failed` with exit code 3 at the first-event deadline; process group gone.
+5. Vendor prints nothing → `failed` ("vendor did not respond", exit code 1) at the first-event deadline; process group gone. Vendor binary missing → exit code 3, no job created.
 6. Vendor hangs after starting → `timeout` at the job deadline; process group gone.
 7. `cancel` → `canceled`; process group gone; a reused pid is not signalled.
 8. Runner killed → `status` and `result` show `failed (runner died)`.
