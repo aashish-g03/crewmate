@@ -1,6 +1,12 @@
 {
   "name": "crewmate",
-  "owner": { "name": "Aashish Gupta" },
+  "owner": {
+    "name": "Aashish Gupta"
+  },
+  "metadata": {
+    "description": "crewmate: hand work from Claude Code to Codex and Gemini.",
+    "version": "1.0.0"
+  },
   "plugins": [
     {
       "name": "crewmate",
