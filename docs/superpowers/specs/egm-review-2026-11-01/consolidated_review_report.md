@@ -59,3 +59,13 @@ Result: 0 blockers. The Majors were resolved together in revision 2 along the li
 
 1. Keep the name `crewmate` (collides with firstmate's worker name) or rename.
 2. npm publishing in v1 or later.
+
+## Re-audit (single permitted EGM re-audit)
+
+reaudit_report.md: 0 blockers, 5 majors, 6 nits on revision 2. All were applied in revision 3:
+- Codex permissions now go through -c sandbox_mode, because exec resume has no -s.
+- Reused modules are described as an adaptation, with the changes listed and the spawn marked as new code.
+- Test fixtures are reconciled; test 2 uses a synthetic fixture.
+- The writer rule covers --yolo and takes an atomic writer.lock.
+- The first-event deadline counts model events only, plus a signed-out fixture to record.
+- Nits: --skip-git-repo-check; agy --effort; the permission-power difference is stated; exit code 7; the shorthand note; the watch line budget.

@@ -1,6 +1,6 @@
 # crewmate v1: one Claude Code plugin for other vendors' coding agents
 
-Status: draft, revision 2 (2026-11-01), after an EGM goldfish review (reports in [`egm-review-2026-11-01/`](egm-review-2026-11-01/))
+Status: draft, revision 3 (2026-11-01), after an EGM goldfish review and its re-audit (reports in [`egm-review-2026-11-01/`](egm-review-2026-11-01/))
 Author: Aashish Gupta (decisions), drafted with Claude
 Replaces: the v0.2 architecture (filesystem mailbox, worker pool, MCP server, Bash subagent), described in [`README.md`](../../../README.md) and [`docs/superpowers/plans/2026-05-04-acp-transport.md`](../plans/2026-05-04-acp-transport.md).
 
@@ -66,6 +66,8 @@ Two known bugs are in scope (not yet filed as GitHub issues): a failed task is r
 
 ## 3. Users and the main flows
 
+In the flows below, `crewmate` is shorthand: inside Claude Code the actual call is `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate"` (4.2).
+
 ### 3.1 Claude Code user (primary)
 
 Installs the plugin, runs `/crewmate:setup` once, then either types a command or lets Claude call crewmate when a second opinion helps (the bundled skill says when).
@@ -120,14 +122,14 @@ Every job, foreground or not, runs through the same detached runner. "Foreground
 - Source is `.mjs` with JSDoc types, type-checked in CI with `tsc --checkJs`. No build step: the files in the repo are the files that run.
 - **Repo layout:** the repo root is a plugin marketplace (`.claude-plugin/marketplace.json`) listing one plugin at `plugins/crewmate/`, which holds `.claude-plugin/plugin.json`, `commands/`, `skills/`, `bin/crewmate` (the entry point) and `lib/`. The marketplace-at-root layout matches `codex-plugin-cc` and EGM; `bin/` is crewmate's own, because the same file is also the npm entry point.
 - **Invocation inside Claude Code:** commands and the skill always call `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" …`, the form `codex-plugin-cc` uses everywhere. Nothing depends on Claude Code putting plugin `bin/` folders on PATH.
-- **Reused code:** `lib/` starts from these modules of `codex-plugin-cc`'s `scripts/lib/` (Apache-2.0, kept with its NOTICE and attribution):
-  - `state` (job records and retention), with its `CLAUDE_PLUGIN_DATA` read removed (4.5)
-  - `job-control`, `tracked-jobs` (detached spawn, pid tracking)
-  - `process` (process-group termination)
-  - `args`, `render`, `fs`
-  - `git` (working-tree and base-ref diffs, for `critique --diff`)
+- **Reused code:** `lib/` is adapted from these modules of `codex-plugin-cc`'s `scripts/lib/` (Apache-2.0, kept with its NOTICE and attribution). This is an adaptation, not a drop-in copy:
+  - `process` (process-group termination), `args`, `render`, `fs`, `workspace` (finding the workspace root), `git` (working-tree and base-ref diffs, for `critique --diff`): used with small edits.
+  - `state`: keep the slug-plus-hash folder scheme. Changes: remove the `CLAUDE_PLUGIN_DATA` read (4.5); drop its shared `state.json` index and read job folders directly, so there is no unlocked shared file to race on; prune only finished jobs (its `pruneJobs` keeps the newest 50 regardless of state).
+  - `tracked-jobs`: keep the job-record and log helpers; add the runner's start time next to its pid.
+  - `job-control`: keep the status and listing logic; remove its import of the Codex-specific `codex.mjs`.
+  - **New code:** the detached runner spawn (in `codex-plugin-cc` it lives in `codex-companion.mjs`, which is not copied), the event log, `watch`, the vendor adapters and the writer lock.
 
-  Everything Codex-specific in that repo (its `codex.mjs`, `app-server*`, the broker, hooks and session transfer) is not copied.
+  Everything Codex-specific in that repo (`codex.mjs`, `app-server*`, `codex-companion.mjs`, the broker, hooks and session transfer) is not copied.
 - The old Bun/TypeScript code is removed (4.10). crewmate keeps its MIT license for its own code; the copied files keep Apache-2.0 headers.
 
 ### 4.3 Command-line interface
@@ -142,7 +144,8 @@ All commands accept `--json`. Exit codes:
 | 3 | vendor not ready: binary not on PATH, so no job was started |
 | 4 | timeout |
 | 5 | canceled |
-| 6 | refused: a write job is already running in this workspace |
+| 6 | refused: a write job is already running in this workspace, or (`--resume`) a job for that vendor is already running |
+| 7 | `critique`: no vendor is ready, so no job was started |
 
 | Command | What it does |
 |---|---|
@@ -156,7 +159,7 @@ All commands accept `--json`. Exit codes:
 
 **`--resume`:** with no value, continues the most recent `ask` job for that vendor in this workspace (critique jobs are skipped); with a job id, continues that job's vendor conversation. Refused while another job for that vendor in this workspace is running.
 
-**Permission steps** are the same for both vendors: default read-only, `--write` (edits in the working directory), `--yolo` (everything, no prompts). They map to each vendor's own controls (4.4); crewmate writes no allow-lists of its own.
+**Permission steps** have the same names for both vendors (their powers differ slightly; see 4.4): default read-only, `--write` (edits in the working directory), `--yolo` (everything, no prompts). They map to each vendor's own controls (4.4); crewmate writes no allow-lists of its own.
 
 ### 4.4 Vendor adapters
 
@@ -166,7 +169,7 @@ Each vendor is one adapter module with the same small interface: build the comma
 - `thread.started` carries `thread_id`, stored for `--resume` (`codex exec resume <thread_id> <prompt>`). Sessions are kept by default (`--ephemeral` is opt-in).
 - `item.started` / `item.completed` carry tool items (for example `command_execution` with `command`, `exit_code`, `status`) and `agent_message` text.
 - `turn.completed` carries token usage. `-o <file>` writes the final message straight to `result.md`.
-- Permission steps: `-s read-only` (default), `-s workspace-write` (`--write`), `--dangerously-bypass-approvals-and-sandbox` (`--yolo`). `--model` maps to `-m`, `--effort` to `-c model_reasoning_effort=<level>`.
+- Permission steps are always passed as `-c sandbox_mode="read-only"` (default) or `-c sandbox_mode="workspace-write"` (`--write`), or as `--dangerously-bypass-approvals-and-sandbox` (`--yolo`). They are not passed as `-s`, because `codex exec resume` has no `-s` option (checked in its help), and without an explicit setting a resumed job would take the sandbox from the user's `config.toml`. `--model` maps to `-m`, `--effort` to `-c model_reasoning_effort=<level>`. `--skip-git-repo-check` is always passed, because crewmate also runs outside git repositories.
 - stdin must be closed (`codex exec` otherwise waits on "Reading additional input from stdin").
 - **Limit:** Codex does not report a sandbox denial as an event. In the recorded read-only run that was asked to create a file, Codex did not attempt the command at all and only said, in its answer, that the filesystem is read-only. A blocked command that it does attempt shows as a `command_execution` with a non-zero exit. So for Codex, crewmate reports non-zero commands as **tool errors** and does not claim to detect denials.
 
@@ -177,9 +180,10 @@ Each vendor is one adapter module with the same small interface: build the comma
 - A run can end `status: SUCCESS` with an empty `response` (recorded). crewmate ends such a job `failed` ("vendor returned no answer").
 - Permission steps: `--mode plan` (default; recorded: agy read files normally, and its one write went to its own plan folder under `~/.gemini/antigravity-cli/brain/`, not the project), `--mode accept-edits` (`--write`), `--dangerously-skip-permissions` (`--yolo`).
 - Read-only guard: in all three recorded runs (default, `--mode plan`, `--mode accept-edits`) `init.permission_mode` was `request-review`, meaning agy denies anything that would need an approval prompt. The runner checks this value on default and `--write` runs and ends the job `failed` with a message naming the setting if it differs (for example because the user's agy settings auto-approve). The builder must confirm what value agy reports when user settings do auto-approve.
-- `--model` passes through (`agy models` lists ids; `--model gemini-3.8-flash-low` worked). `--print-timeout` is set to the job timeout.
+- `--model` and `--effort` pass through (`agy models` lists ids; `--model gemini-3.8-flash-low` worked; `agy --help` lists `--effort low|medium|high|xhigh|max`). `--print-timeout` is set to the job timeout.
+- Difference from Codex, stated: agy `--write` (`accept-edits`) allows file edits but still denies shell commands, while Codex `workspace-write` can run commands in the workspace. The permission steps have the same names for both vendors, not identical powers.
 
-**First-event deadline (all vendors).** If a vendor prints no event within 45 seconds of starting, the job ends `failed` (exit code 1, like any failed job) with reason "vendor did not respond" and the `setup` fix text in its outcome. This catches a signed-out or hung CLI (the agy hang above) without probing sign-in before every job; `--print-timeout` alone would only stop it at the full job timeout.
+**First-event deadline (all vendors).** A model event is any agy `step_update` or `result`, or any Codex `item.*` or `turn.*` event. agy's `init` and Codex's `thread.started` do not count, because they carry only local data and may appear even when the vendor cannot reach its model. If a vendor prints no model event within 45 seconds of starting, the job ends `failed` (exit code 1, like any failed job) with reason "vendor did not respond" and the `setup` fix text in its outcome. This is meant to catch a signed-out or hung CLI (the agy hang above) without probing sign-in before every job; the builder records one signed-out agy run as a fixture to confirm which events it prints; `--print-timeout` alone would only stop it at the full job timeout.
 
 **Later vendors** (Kimi, Cursor Agent, others) are new adapter modules. Nothing in v1 may assume there are only two.
 
@@ -192,7 +196,7 @@ Each vendor is one adapter module with the same small interface: build the comma
 - **Runner:** `ask` and `critique` spawn `crewmate _run <id>` detached in its own process group, with stdin closed and output to the job's log. It survives Claude Code exiting.
 - **Dead runner:** a job whose runner is gone without an `end` event is reported as `failed (runner died)` by `status`, `watch` and `result`, and `watch` exits instead of waiting. "Gone" means the pid is not running, or the process at that pid has a different start time than the one recorded (pid reuse).
 - **Retention:** keep the newest 50 finished jobs per workspace; running jobs are never pruned. Pruning happens when a new job starts.
-- **One writer at a time:** `ask --write` is refused (exit code 6, naming the running job) if this workspace already has a running job started with `--write` or `--yolo`. "Running" uses the same rule as dead-runner detection, so a crashed writer never blocks later jobs. Read-only jobs never wait and can run in parallel. The other collision, Claude editing files while a write job runs, is handled by a rule in the skill (4.6), not by code.
+- **One writer at a time:** a job started with `--write` or `--yolo` is refused (exit code 6, naming the running job) if this workspace already has a running job started with either flag. The writer slot is taken by creating `writer.lock` (holding the job id) with an exclusive create, so two jobs starting at the same moment cannot both get it. A lock whose job is no longer running, by the same rule as dead-runner detection, is removed and retaken, so a crashed writer never blocks later jobs. Read-only jobs never wait and can run in parallel. The other collision, Claude editing files while a write job runs, is handled by a rule in the skill (4.6), not by code.
 - **Cancel:** SIGTERM to the runner's process group, then SIGKILL after 5 seconds; the job ends `canceled`. The runner pid and start time are checked first, so cancel never signals an unrelated process.
 
 ### 4.6 The Claude Code layer
@@ -242,17 +246,18 @@ v0.2 was never published (the README's npm section says "once published"), so mi
 
 Real flows, failure modes first, no tests that restate the code (Aashish's testing rule in his global `CLAUDE.md`).
 
-One test per failure mode, run through the real CLI against fake vendor CLIs that replay recorded output (the four fixtures in `egm-review-2026-11-01/`, copied to `tests/fixtures/`):
+One test per failure mode, run through the real CLI against fake vendor CLIs that replay recorded output (the five `.ndjson` recordings in `egm-review-2026-11-01/`, copied to `tests/fixtures/`). `agy2.ndjson` (a denial plus an empty response) is the fixture for test 3. Test 2 uses a fixture derived from it with a non-empty response, marked as synthetic, until a real denial-with-answer run is recorded.
 
 1. Vendor exits non-zero or reports an error → `failed`, never `done`.
-2. agy ends `SUCCESS` with `denied_actions` → `done`, exit code 0; the denied step shows live as a tool `error` line, and the denied tools are listed in `result`, `--json` and the final `watch` line.
+2. agy ends `SUCCESS` with `denied_actions` and a non-empty response → `done`, exit code 0; the denied step shows live as a tool `error` line, and the denied tools are listed in `result`, `--json` and the final `watch` line.
 3. agy ends `SUCCESS` with an empty response → `failed`.
 4. Codex command with non-zero exit → listed as a tool error.
 5. Vendor prints nothing → `failed` ("vendor did not respond", exit code 1) at the first-event deadline; process group gone. Vendor binary missing → exit code 3, no job created.
 6. Vendor hangs after starting → `timeout` at the job deadline; process group gone.
 7. `cancel` → `canceled`; process group gone; a reused pid is not signalled.
 8. Runner killed → `status` and `result` show `failed (runner died)`.
-9. Second `--write` job in the same workspace → exit code 6; a dead writer does not block.
+9. A `--write` or `--yolo` job while another writer runs → exit code 6; a dead writer's lock does not block.
+16. A resumed Codex job without `--write` runs with `sandbox_mode="read-only"` even when the user's `config.toml` sets another sandbox.
 10. `--resume` passes the stored conversation or thread id; skips critique jobs.
 11. Path-like vendor names or job ids are rejected.
 12. agy `init.permission_mode` other than expected → `failed` before any tool runs.
@@ -306,7 +311,7 @@ Limits: 50 finished jobs kept per workspace; one write job per workspace; read-o
 ## 9. Left to the builder
 
 - Internal module layout under `lib/` beyond the reused modules.
-- Wording of `watch` lines and the outcome block; the merge and throttle thresholds, within "a job reading hundreds of files stays under Monitor's line limit".
+- Wording of `watch` lines and the outcome block; the merge and throttle thresholds. Monitor's line limit is not published, so the target is at most about one line per 2 seconds per job on average, checked in the release transcript. `watch` may add a `--since <event-number>` option so a re-armed Monitor does not replay the whole history.
 - Exact critique template text, within 4.7.
 - Two checks before relying on them, with the fallback named in 4.4 if either fails:
   - what `init.permission_mode` agy reports when user settings auto-approve;
