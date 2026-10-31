@@ -23,7 +23,7 @@ export const codexAdapter = {
 
   createParser() {
     /** @type {import('./index.mjs').ParsedOutcome} */
-    const out = { conversationId: null, answer: null, deniedTools: [], toolErrors: [], usage: null, vendorError: null, permissionMode: null };
+    const out = { conversationId: null, answer: null, deniedTools: [], toolErrors: [], usage: null, vendorError: null, permissionMode: null, lastError: null };
     return {
       feed(line) {
         const o = parseJson(line);
@@ -48,16 +48,27 @@ export const codexAdapter = {
             if (item.type === 'agent_message') {
               return o.type === 'item.completed' && String(item.text ?? '').trim() ? [{ type: 'note', text: String(item.text) }] : [];
             }
-            return [];
+            if (item.type === 'reasoning' || !item.type) return [];
+            // file_change, mcp_tool_call, web_search, …: show them as tools.
+            {
+              const target = cut(item.changes?.map((c) => c.path).join(' ') ?? item.tool ?? item.query ?? '');
+              if (o.type === 'item.started') return [{ type: 'tool', name: String(item.type), target, phase: 'start' }];
+              const failed = item.status === 'failed';
+              if (failed) out.toolErrors.push(String(item.type));
+              return [{ type: 'tool', name: String(item.type), target, phase: failed ? 'error' : 'done' }];
+            }
           case 'turn.completed': {
             const u = o.usage ?? {};
             out.usage = { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0 };
             return [{ type: 'usage', ...out.usage }];
           }
           case 'turn.failed':
-          case 'error':
-            out.vendorError = String(o.error?.message ?? o.message ?? o.type);
+            out.vendorError = String(o.error?.message ?? o.message ?? 'turn failed');
             return [];
+          case 'error':
+            // Often recoverable ("Reconnecting... 1/5"); only turn.failed or a non-zero exit fails the job.
+            out.lastError = String(o.message ?? o.error?.message ?? 'error');
+            return [{ type: 'note', text: `error: ${out.lastError}` }];
           default:
             return [{ type: 'note', text: line }];
         }

@@ -151,3 +151,15 @@ test('status, result and --json shapes; unknown ids exit 2; result on a running 
   assert.match(still.stderr, /still running/);
   await cli(['cancel', hang], { env: { CREWMATE_CANCEL_GRACE_MS: '200' } });
 });
+
+test('CP2-3: cancel on a queued job with no runner yet marks it canceled, and a late runner does not revive it', async () => {
+  const { cli, ws, home } = setup();
+  const job = createJob(ws, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 5000 } });
+  fs.writeFileSync(path.join(jobDir(ws, job.id), 'prompt.txt'), 'x');
+  const c = await cli(['cancel', job.id], { env: { CREWMATE_SPAWN_GRACE_MS: '300' } });
+  assert.equal(c.code, 0, c.stderr);
+  assert.equal(readJob(ws, job.id).state, 'canceled');
+  spawnRunner(ws, job.id, { PATH: fakePath(['codex']), HOME: home, CREWMATE_HOME: home, FAKE_FIXTURE: fx('codex.ndjson') });
+  await new Promise((r) => setTimeout(r, 800));
+  assert.equal(readJob(ws, job.id).state, 'canceled');
+});

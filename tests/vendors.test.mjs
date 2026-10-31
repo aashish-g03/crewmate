@@ -125,7 +125,7 @@ test('buildArgs: gemini modes, print-timeout, model, effort, resume', () => {
   const w = g({ write: true });
   assert.deepEqual(w.slice(w.indexOf('--mode'), w.indexOf('--mode') + 2), ['--mode', 'accept-edits']);
   const d = g({});
-  assert.deepEqual(d.slice(d.indexOf('--mode'), d.indexOf('--mode') + 2), ['--mode', 'plan']);
+  assert.ok(!d.includes('--mode'), 'read-only: no --mode (headless request-review denies writes)');
   const y = g({ yolo: true });
   assert.ok(y.includes('--dangerously-skip-permissions'));
   assert.ok(!y.includes('--mode'));
@@ -169,4 +169,18 @@ test('fake codex replays its fixture, logs argv and writes the -o answer', () =>
   assert.equal(r.stdout.trim().split('\n').length, 7);
   assert.equal(fs.readFileSync(out, 'utf8'), 'done');
   assert.deepEqual(JSON.parse(fs.readFileSync(log, 'utf8')), ['exec', '--json', '-o', out, '--', 'hi']);
+});
+
+test('CP2-10: other codex item types (file_change, mcp_tool_call) become tool events', () => {
+  const p = getAdapter('codex').createParser();
+  const ev = p.feed('{"type":"item.completed","item":{"id":"i","type":"file_change","changes":[{"path":"a.js"}],"status":"completed"}}');
+  assert.equal(ev[0].type, 'tool');
+  assert.equal(ev[0].name, 'file_change');
+  assert.deepEqual(p.feed('{"type":"item.completed","item":{"id":"r","type":"reasoning","text":"…"}}'), []);
+});
+
+test('gemini read-only runs pass no --mode (plan mode turns questions into plans); write uses accept-edits', () => {
+  const g = (flags) => getAdapter('gemini').buildArgs({ id: 'x', vendor: 'gemini', flags: { timeoutMs: 600000, ...flags } }, 'p', '/r.md');
+  assert.ok(!g({}).includes('--mode'));
+  assert.ok(g({ write: true }).join(' ').includes('--mode accept-edits'));
 });

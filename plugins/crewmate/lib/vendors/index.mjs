@@ -9,7 +9,8 @@ import { geminiAdapter } from './gemini.mjs';
  * @typedef {import('../jobs.mjs').Job} Job
  * @typedef {{type: string, [k: string]: any}} VendorEvent
  * @typedef {{conversationId: string|null, answer: string|null, deniedTools: string[], toolErrors: string[],
- *            usage: {input: number, output: number}|null, vendorError: string|null, permissionMode: string|null}} ParsedOutcome
+ *            usage: {input: number, output: number}|null, vendorError: string|null, permissionMode: string|null,
+ *            lastError?: string|null}} ParsedOutcome
  * @typedef {{feed(line: string): VendorEvent[], isModelEvent(line: string): boolean, finish(): ParsedOutcome}} Parser
  * @typedef {{binary: 'codex'|'agy', buildArgs(job: any, prompt: string, resultFile: string): string[],
  *            createParser(): Parser, expectedPermissionMode(job: any): 'request-review'|null}} Adapter

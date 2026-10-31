@@ -31,6 +31,19 @@ export async function run(argv, io) {
   };
   const grace = Number(io.env.CREWMATE_CANCEL_GRACE_MS ?? 5000);
 
+  // Queued with no runner yet: wait briefly for it; if none appears, mark it canceled so a late
+  // runner sees a final state and exits without starting the vendor.
+  if (job.state === 'queued' && !job.runner) {
+    const spawnGrace = Number(io.env.CREWMATE_SPAWN_GRACE_MS ?? 10_000);
+    const until = Date.parse(job.createdAt) + spawnGrace;
+    while (Date.now() < until && !readJob(ws, id)?.runner) await new Promise((r) => setTimeout(r, 100));
+    job = readJob(ws, id);
+    if (!job.runner) {
+      writeJob(ws, { ...job, state: 'canceled', reason: 'canceled before start', endedAt: new Date().toISOString() });
+      return print('canceled');
+    }
+  }
+
   if (isAlive(job.runner)) {
     signal(job.runner.pid, 'SIGTERM', false);
     const deadline = Date.now() + grace + 1000;

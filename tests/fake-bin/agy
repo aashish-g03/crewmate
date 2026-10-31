@@ -8,6 +8,13 @@ if (argv[0] === 'models') { console.log('gemini-3.8-flash-low\tGemini 3.8 Flash 
 if (env.FAKE_ARGV_LOG) fs.appendFileSync(env.FAKE_ARGV_LOG, JSON.stringify(argv) + '\n');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hang = () => setInterval(() => {}, 1 << 30);
+import { spawn as spawnChild } from 'node:child_process';
+if (env.FAKE_STDERR) process.stderr.write(env.FAKE_STDERR + '\n');
+if (env.FAKE_GRANDCHILD_PID_FILE) {
+  // A grandchild in our process group that ignores SIGTERM.
+  const g = spawnChild('sh', ['-c', "trap '' TERM; sleep 37"], { stdio: 'ignore' });
+  fs.writeFileSync(env.FAKE_GRANDCHILD_PID_FILE, String(g.pid));
+}
 if (env.FAKE_HANG === '1') hang();
 else {
   const lines = env.FAKE_FIXTURE ? fs.readFileSync(env.FAKE_FIXTURE, 'utf8').split('\n').filter(Boolean) : [];

@@ -77,7 +77,7 @@ test('(T3) gemini SUCCESS with an empty response → failed, vendor returned no 
   const { w, id } = startJob('gemini', { env: { FAKE_FIXTURE: fixture('agy2.ndjson') } });
   const j = await finalOf(w, id);
   assert.equal(j.state, 'failed');
-  assert.equal(j.reason, 'vendor returned no answer');
+  assert.match(j.reason, /^vendor returned no answer/);
 });
 
 test('(T4) codex non-zero command → done with one tool error', async () => {
@@ -188,4 +188,82 @@ test('acquireWriter: an old lock with no job.json counts as dead', () => {
   assert.equal(fs.existsSync(lock), true, 'release by a non-holder is a no-op');
   releaseWriter(w, 'codex-me-bbbb');
   assert.equal(fs.existsSync(lock), false);
+});
+
+// ---- Checkpoint 2 review findings ----
+import { runJob } from '../plugins/crewmate/lib/runner.mjs';
+import { processStartTime } from '../plugins/crewmate/lib/liveness.mjs';
+import { spawn as spawnProc } from 'node:child_process';
+
+test('CP2-1: a grandchild that ignores SIGTERM is SIGKILLed with the group', async () => {
+  const pidFile = path.join(tempDir(), 'gc.pid');
+  const { w, id } = startJob('codex', {
+    flags: { timeoutMs: 600 },
+    env: { FAKE_FIXTURE: fixture('codex.ndjson'), FAKE_HANG_AFTER: '3', FAKE_GRANDCHILD_PID_FILE: pidFile, CREWMATE_CANCEL_GRACE_MS: '300' },
+  });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'timeout');
+  const gc = Number(fs.readFileSync(pidFile, 'utf8'));
+  await waitFor(() => processStartTime(gc) === null, 2000);
+});
+
+test('CP2-2: a vendor that exits 0 while a background child holds stdout ends done, not timeout', async () => {
+  const t0 = Date.now();
+  const { w, id } = startJob('codex', { flags: { timeoutMs: 3000 }, env: { FAKE_FIXTURE: fixture('codex.ndjson'), FAKE_BACKGROUND_HOLD: '5' } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'done');
+  assert.ok(Date.now() - t0 < 2500, `took ${Date.now() - t0}ms`);
+});
+
+test('CP2-3: _run on a job that is already final (or canceled before start) does nothing', async () => {
+  const { home } = tempHome();
+  const w = resolveWorkspace(tempDir(), { CREWMATE_HOME: home });
+  const job = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 5000 } });
+  fs.writeFileSync(path.join(jobDir(w, job.id), 'prompt.txt'), 'x');
+  writeJob(w, { ...job, state: 'canceled', reason: 'canceled before start' });
+  const log = path.join(tempDir(), 'argv.log');
+  await runJob(w, job.id, { PATH: fakePath(['codex']), FAKE_FIXTURE: fixture('codex.ndjson'), FAKE_ARGV_LOG: log, CREWMATE_HOME: home });
+  assert.equal(readJob(w, job.id).state, 'canceled');
+  assert.equal(fs.existsSync(log), false, 'vendor never started');
+});
+
+test('CP2-4: a recoverable codex error before a completed turn and exit 0 → done', async () => {
+  const { w, id } = startJob('codex', { env: { FAKE_FIXTURE: fixture('codex-reconnect.ndjson') } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'done', j.reason);
+});
+
+test('CP2-7: a non-zero exit reports the vendor stderr line', async () => {
+  const { w, id } = startJob('codex', { env: { FAKE_FIXTURE: fixture('codex.ndjson'), FAKE_EXIT: '1', FAKE_STDERR: 'Error: Not logged in' } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'failed');
+  assert.match(j.reason, /exit 1: Error: Not logged in/);
+});
+
+test('CP2-6: an error after the job is running ends it failed with an end event (not runner died)', async () => {
+  const { home } = tempHome();
+  const w = resolveWorkspace(tempDir(), { CREWMATE_HOME: home });
+  const job = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 5000 } });
+  // no prompt.txt: reading it throws
+  spawnRunner(w, job.id, { PATH: fakePath(['codex']), CREWMATE_HOME: home, HOME: home });
+  const j = await finalOf(w, job.id);
+  assert.equal(j.state, 'failed');
+  assert.notEqual(j.reason, 'runner died');
+  assert.equal(readEvents(jobDir(w, job.id)).at(-1).type, 'end');
+});
+
+test('empty answer with denials names the denied tools in the reason', async () => {
+  const { w, id } = startJob('gemini', { env: { FAKE_FIXTURE: fixture('agy2.ndjson') } });
+  const j = await finalOf(w, id);
+  assert.equal(j.reason, 'vendor returned no answer (denied: RunCommand)');
+});
+
+test('CP2-declined: the writer lock is not taken over while the dead holder\'s vendor still runs', () => {
+  const w = lockWs();
+  const victim = spawnProc('sleep', ['30'], { detached: true });
+  const holder = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { write: true } });
+  writeJob(w, { ...holder, state: 'running', runner: { pid: 999999, startTime: 'x' }, vendorProcess: { pid: victim.pid, startTime: processStartTime(victim.pid) } });
+  fs.writeFileSync(path.join(w.stateDir, 'writer.lock'), holder.id);
+  assert.equal(acquireWriter(w, 'codex-me-bbbb').ok, false);
+  victim.kill('SIGKILL');
 });

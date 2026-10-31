@@ -1,0 +1,9 @@
+{"fixture_note":"synthetic: a recoverable top-level error before a completed turn"}
+{"type":"thread.started","thread_id":"01a193d0-87dd-7341-9392-cbf04ee3bb21"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll list the files in the current directory."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'ls -la'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'ls -la'","aggregated_output":"total 40\ndrwxr-xr-x  8 aashish  staff   256 Nov  1 02:44 .\ndrwxr-xr-x  7 aashish  staff   224 Nov  1 02:37 ..\n-rw-r--r--  1 aashish  staff  2251 Nov  1 02:38 agy-stream.ndjson\n-rw-r--r--  1 aashish  staff     0 Nov  1 02:37 agy.err\n-rw-r--r--  1 aashish  staff   303 Nov  1 02:38 agy2.err\n-rw-r--r--  1 aashish  staff  3012 Nov  1 02:38 agy2.ndjson\n-rw-r--r--  1 aashish  staff    39 Nov  1 02:44 codex.err\n-rw-r--r--  1 aashish  staff   230 Nov  1 02:44 codex.ndjson\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"done"}}
+{"type":"turn.completed","usage":{"input_tokens":29395,"cached_input_tokens":26752,"cache_write_input_tokens":0,"output_tokens":57,"reasoning_output_tokens":0}}

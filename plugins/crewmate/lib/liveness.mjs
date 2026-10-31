@@ -45,12 +45,12 @@ export function effectiveState(job, now = Date.now(), env = process.env) {
   return { state: job.state, reason };
 }
 
-/** @param {any} job */
-export function isFinal(job) {
-  return FINAL_STATES.includes(effectiveState(job).state);
+/** @param {any} job @param {NodeJS.ProcessEnv} [env] */
+export function isFinal(job, env = process.env) {
+  return FINAL_STATES.includes(effectiveState(job, Date.now(), env).state);
 }
 
-/** Final, and no live vendor process left that only this record can find. @param {any} job */
-export function isPrunable(job) {
-  return isFinal(job) && !isAlive(job.vendorProcess);
+/** Final, and no live vendor process left that only this record can find. @param {any} job @param {NodeJS.ProcessEnv} [env] */
+export function isPrunable(job, env = process.env) {
+  return isFinal(job, env) && !isAlive(job.vendorProcess);
 }

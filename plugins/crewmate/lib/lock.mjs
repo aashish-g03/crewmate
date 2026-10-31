@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readJob } from './jobs.mjs';
-import { isFinal } from './liveness.mjs';
+import { isPrunable } from './liveness.mjs';
 
 /** @param {import('./workspace.mjs').Workspace} ws */
 function lockPath(ws) {
@@ -18,16 +18,24 @@ function readHolder(p) {
   }
 }
 
-/** @param {string} p @param {string} jobId */
+/**
+ * Create the lock with its content in one step: write a temp file, then hard-link it into place
+ * (link fails with EEXIST if the lock exists), so no reader ever sees an empty lock.
+ * @param {string} p @param {string} jobId
+ */
 function tryCreate(p, jobId) {
+  const tmp = `${p}.${process.pid}.${Math.random().toString(36).slice(2)}`;
+  fs.writeFileSync(tmp, jobId);
   try {
-    const fd = fs.openSync(p, 'wx');
-    fs.writeSync(fd, jobId);
-    fs.closeSync(fd);
+    fs.linkSync(tmp, p);
     return true;
   } catch (err) {
     if (err.code === 'EEXIST') return false;
     throw err;
+  } finally {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {}
   }
 }
 
@@ -54,10 +62,10 @@ export function acquireWriter(ws, jobId, env = process.env) {
       } catch {}
       const grace = Number(env.CREWMATE_SPAWN_GRACE_MS ?? 10_000);
       if (ageMs < grace) return { ok: false, holder }; // its job record is about to be written
-    } else if (!isFinal(job)) {
-      return { ok: false, holder };
+    } else if (!isPrunable(job, env)) {
+      return { ok: false, holder }; // still running, or its vendor process outlived its runner
     }
-    // Holder is final or dead: remove the lock only if it still names that holder, then retry once.
+    // Holder is final (and its vendor is gone) or dead: remove the lock only if it still names that holder, then retry once.
     if (readHolder(p) === holder) {
       try {
         fs.unlinkSync(p);

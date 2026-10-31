@@ -8,6 +8,13 @@ if (argv[0] === 'login' && argv[1] === 'status') { console.log('Logged in'); pro
 if (env.FAKE_ARGV_LOG) fs.appendFileSync(env.FAKE_ARGV_LOG, JSON.stringify(argv) + '\n');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hang = () => setInterval(() => {}, 1 << 30);
+import { spawn as spawnChild } from 'node:child_process';
+if (env.FAKE_STDERR) process.stderr.write(env.FAKE_STDERR + '\n');
+if (env.FAKE_GRANDCHILD_PID_FILE) {
+  // A grandchild in our process group that ignores SIGTERM.
+  const g = spawnChild('sh', ['-c', "trap '' TERM; sleep 37"], { stdio: 'ignore' });
+  fs.writeFileSync(env.FAKE_GRANDCHILD_PID_FILE, String(g.pid));
+}
 if (env.FAKE_HANG === '1') hang();
 else {
   const lines = env.FAKE_FIXTURE ? fs.readFileSync(env.FAKE_FIXTURE, 'utf8').split('\n').filter(Boolean) : [];
@@ -24,6 +31,7 @@ else {
   else {
     const o = argv.indexOf('-o');
     if (o >= 0) fs.writeFileSync(argv[o + 1], env.FAKE_ANSWER ?? 'done');
+    if (env.FAKE_BACKGROUND_HOLD) spawnChild('sleep', [env.FAKE_BACKGROUND_HOLD], { stdio: ['ignore', 'inherit', 'inherit'] }).unref();
     process.exitCode = Number(env.FAKE_EXIT ?? 0); // not process.exit(): it drops stdout still queued for a pipe
   }
 }

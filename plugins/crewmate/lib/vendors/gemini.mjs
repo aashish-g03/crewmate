@@ -15,8 +15,10 @@ export const geminiAdapter = {
     const f = job.flags ?? {};
     const secs = Math.ceil((f.timeoutMs ?? 600_000) / 1000) + 30; // past crewmate's own deadline
     const args = ['-p', prompt, '--output-format', 'stream-json', '--print-timeout', `${secs}s`];
+    // Read-only: no --mode. Headless agy runs in `request-review` and denies anything that needs
+    // approval (the runner checks init.permission_mode). `--mode plan` turned questions into plans.
     if (f.yolo) args.push('--dangerously-skip-permissions');
-    else args.push('--mode', f.write ? 'accept-edits' : 'plan');
+    else if (f.write) args.push('--mode', 'accept-edits');
     if (f.model) args.push('--model', f.model);
     if (f.effort) args.push('--effort', f.effort);
     if (f.resumeConversationId) args.push('--conversation', f.resumeConversationId);
