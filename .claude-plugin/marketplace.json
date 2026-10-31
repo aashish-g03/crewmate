@@ -1,0 +1,11 @@
+{
+  "name": "crewmate",
+  "owner": { "name": "Aashish Gupta" },
+  "plugins": [
+    {
+      "name": "crewmate",
+      "source": "./plugins/crewmate",
+      "description": "Hand work from Claude Code to Codex and Gemini: background jobs, live progress, and independent critique."
+    }
+  ]
+}

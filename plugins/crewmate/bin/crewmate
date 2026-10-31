@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+// crewmate: hand work from Claude Code to other vendors' coding agents.
+import process from 'node:process';
+import { UsageError } from '../lib/names.mjs';
+
+const COMMANDS = {
+  ask: '../lib/commands/ask.mjs',
+  critique: '../lib/commands/critique.mjs',
+  watch: '../lib/commands/watch.mjs',
+  status: '../lib/commands/status.mjs',
+  result: '../lib/commands/result.mjs',
+  cancel: '../lib/commands/cancel.mjs',
+  setup: '../lib/commands/setup.mjs',
+  _run: '../lib/runner.mjs',
+};
+
+const USAGE = `usage: crewmate <command> [args]
+
+commands:
+  ask <codex|gemini> [prompt]   start a job (prompt on stdin, --prompt-file, or argument)
+  critique <path...> | --diff   independent review by every ready vendor
+  watch <id...>                 stream job progress until the jobs end
+  status [id]                   list jobs in this workspace
+  result <id>                   print a job's answer and outcome
+  cancel <id>                   stop a running job
+  setup                         check Node and vendor CLIs
+`;
+
+async function main() {
+  const [name, ...rest] = process.argv.slice(2);
+  const modPath = name && Object.prototype.hasOwnProperty.call(COMMANDS, name) ? COMMANDS[name] : null;
+  if (!modPath) {
+    process.stderr.write(USAGE);
+    return 2;
+  }
+  const mod = await import(new URL(modPath, import.meta.url).href);
+  const io = { stdout: process.stdout, stderr: process.stderr, stdin: process.stdin, env: process.env, cwd: process.cwd() };
+  try {
+    return await mod.run(name === '_run' ? [name, ...rest] : rest, io);
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(`crewmate: ${err.message}\n`);
+      return 2;
+    }
+    throw err;
+  }
+}
+
+main().then(
+  (code) => { process.exitCode = code ?? 0; },
+  (err) => { process.stderr.write(`crewmate: ${err?.stack ?? err}\n`); process.exitCode = 1; },
+);
