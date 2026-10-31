@@ -7,7 +7,7 @@ Replaces: the v0.2 architecture (filesystem mailbox, worker pool, MCP server, Ba
 ## Terms
 
 - **Vendor:** a coding-agent CLI crewmate can drive. v1 has two vendor names: `codex` (OpenAI Codex CLI) and `gemini` (Google's Antigravity CLI, `agy`, which runs Gemini models).
-- **Job:** one prompt sent to one vendor, with its own id, event log and final answer.
+- **Job:** one prompt sent to one vendor, with its own id, event log and final answer. The vendor runs in the folder the job was started from; job state is grouped by that folder's workspace root.
 - **Goldfish / elephant:** terms from Google's [Elephant-Goldfish Model (EGM)](https://github.com/google/elephant-goldfish-model) ([egm.dev](https://egm.dev); the repo says it is not an officially supported Google product). The *elephant* is the agent that holds the full conversation and writes a design; a *goldfish* is a reviewer that starts with no conversation context, so gaps the author filled in mentally become visible.
 - **Monitor:** a Claude Code tool that runs a command in the background and delivers each line it prints to the conversation as a notification. It has a timeout (default 5 minutes, at most 30), and it stops a command that prints too many lines.
 - **ACP:** [Agent Client Protocol](https://agentclientprotocol.com), a JSON-RPC protocol for talking to coding agents. v0.2 used it; v1 does not.
@@ -62,7 +62,7 @@ Two known bugs are in scope (not yet filed as GitHub issues): a failed task is r
 - A user has to keep a terminal open, or run a daemon, for jobs to start.
 - A job ends `done` without listing tools the vendor denied, or with an empty answer.
 - crewmate runs a vendor with all permissions bypassed unless the user typed `--yolo`.
-- crewmate grows its own model-calling logic (API keys, provider routing, prompt rewriting beyond the critique template). It drives vendor CLIs the user already has.
+- crewmate grows its own model-calling logic (API keys, provider routing, prompt rewriting beyond the critique template and one fixed capability note). It drives vendor CLIs the user already has. (Amended during the build: read-only Gemini prompts get one fixed sentence saying shell and edits are unavailable, because without it agy tried a shell command, was denied, and gave up with an empty answer.)
 
 ## 3. Users and the main flows
 
@@ -157,7 +157,7 @@ All commands accept `--json`. Exit codes:
 | `crewmate cancel <id>` | Stops a running job. |
 | `crewmate setup` | Checks Node, and for each vendor: binary on PATH, version, sign-in. Prints `ready` or the exact fix command per vendor. |
 
-**`--resume`:** with no value, continues the most recent `ask` job for that vendor in this workspace (critique jobs are skipped); with a job id, continues that job's vendor conversation. Refused while another job for that vendor in this workspace is running.
+**`--resume`:** with no value, continues the most recent `ask` job for that vendor in this workspace (critique jobs are skipped); `--resume=<job-id>` (the `=` form only, so a bare `--resume` never eats the prompt) continues that job's vendor conversation, which must belong to the same vendor. Refused while another job for that vendor in this workspace is running.
 
 **Permission steps** have the same names for both vendors (their powers differ slightly; see 4.4): default read-only, `--write` (edits in the working directory), `--yolo` (everything, no prompts). They map to each vendor's own controls (4.4); crewmate writes no allow-lists of its own.
 
@@ -183,7 +183,7 @@ Each vendor is one adapter module with the same small interface: build the comma
 - `--model` and `--effort` pass through (`agy models` lists ids; `--model gemini-3.8-flash-low` worked; `agy --help` lists `--effort low|medium|high|xhigh|max`). `--print-timeout` is set to the job timeout.
 - Difference from Codex, stated: agy `--write` (`accept-edits`) allows file edits but still denies shell commands, while Codex `workspace-write` can run commands in the workspace. The permission steps have the same names for both vendors, not identical powers.
 
-**First-event deadline (all vendors).** A model event is any agy `step_update` or `result`, or any Codex `item.*` or `turn.*` event. agy's `init` and Codex's `thread.started` do not count, because they carry only local data and may appear even when the vendor cannot reach its model. If a vendor prints no model event within 45 seconds of starting, the job ends `failed` (exit code 1, like any failed job) with reason "vendor did not respond" and the `setup` fix text in its outcome. This is meant to catch a signed-out or hung CLI (the agy hang above) without probing sign-in before every job; the builder records one signed-out agy run as a fixture to confirm which events it prints; `--print-timeout` alone would only stop it at the full job timeout.
+**First-event deadline (all vendors).** A model event is any agy `step_update` other than the `user_input` echo, or a `result`; or any Codex `item.*`, `turn.completed` or `turn.failed` event (amended during the build: `turn.started` and `user_input` appear before the model replies). agy's `init` and Codex's `thread.started` do not count, because they carry only local data and may appear even when the vendor cannot reach its model. If a vendor prints no model event within 45 seconds of starting, the job ends `failed` (exit code 1, like any failed job) with reason "vendor did not respond" and the `setup` fix text in its outcome. This is meant to catch a signed-out or hung CLI (the agy hang above) without probing sign-in before every job; the builder records one signed-out agy run as a fixture to confirm which events it prints; `--print-timeout` alone would only stop it at the full job timeout.
 
 **Later vendors** (Kimi, Cursor Agent, others) are new adapter modules. Nothing in v1 may assume there are only two.
 

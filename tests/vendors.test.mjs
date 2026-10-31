@@ -101,7 +101,7 @@ test('buildArgs: prompt position (Review Focus 1)', () => {
   assert.equal(c.at(-2), '--');
   const g = getAdapter('gemini').buildArgs({ ...job(), vendor: 'gemini' }, PROMPT, '/r.md');
   assert.equal(g[0], '-p');
-  assert.equal(g[1], PROMPT);
+  assert.ok(g[1].startsWith(`${PROMPT}\n\n`), 'prompt intact, read-only note appended');
 });
 
 test('buildArgs: codex resume keeps read-only via -c and never uses -s', () => {
@@ -183,4 +183,11 @@ test('gemini read-only runs pass no --mode (plan mode turns questions into plans
   const g = (flags) => getAdapter('gemini').buildArgs({ id: 'x', vendor: 'gemini', flags: { timeoutMs: 600000, ...flags } }, 'p', '/r.md');
   assert.ok(!g({}).includes('--mode'));
   assert.ok(g({ write: true }).join(' ').includes('--mode accept-edits'));
+});
+
+test('gemini read-only prompts carry the capability note; write and yolo prompts do not', () => {
+  const g = (flags) => getAdapter('gemini').buildArgs({ id: 'x', vendor: 'gemini', flags: { timeoutMs: 600000, ...flags } }, 'the task', '/r.md')[1];
+  assert.match(g({}), /^the task\n\n.*read-only.*shell commands and file edits are not available/s);
+  assert.equal(g({ write: true }), 'the task');
+  assert.equal(g({ yolo: true }), 'the task');
 });

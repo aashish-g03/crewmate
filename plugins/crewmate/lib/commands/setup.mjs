@@ -24,7 +24,7 @@ function checkGemini(env) {
   const v = probe('agy', ['--version'], 5000, env);
   const version = v.ok ? v.stdout.trim().split('\n')[0] : null;
   const limit = Number(env.CREWMATE_PROBE_MS ?? 30_000);
-  const p = probe('agy', ['-p', 'Reply with the word ok', '--output-format', 'stream-json', '--mode', 'plan', '--print-timeout', '30s'], limit, env);
+  const p = probe('agy', ['-p', 'Reply with the word ok', '--output-format', 'stream-json', '--print-timeout', '30s'], limit, env);
   const success = p.stdout.split('\n').some((l) => {
     try {
       const o = JSON.parse(l);

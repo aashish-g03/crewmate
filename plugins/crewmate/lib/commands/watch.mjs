@@ -4,7 +4,7 @@ import { UsageError, assertName } from '../names.mjs';
 import { resolveWorkspace } from '../workspace.mjs';
 import { readJob, jobDir } from '../jobs.mjs';
 import { readEvents } from '../events.mjs';
-import { effectiveState } from '../liveness.mjs';
+import { effectiveState, isAlive } from '../liveness.mjs';
 import { extractOptionalValues } from './ask.mjs';
 
 const POLL_MS = 250;
@@ -12,6 +12,7 @@ const MERGE_FLUSH_MS = 2000;
 const NOTE_EVERY_MS = 2000;
 const EXIT = { done: 0, failed: 1, timeout: 4, canceled: 5 };
 const RANK = { failed: 3, timeout: 2, canceled: 1, done: 0 };
+const FINAL = ['done', 'failed', 'timeout', 'canceled'];
 
 /** @param {any} job @param {string} state */
 function endLine(job, state, reason, n) {
@@ -71,7 +72,8 @@ function makeFormatter(label, write) {
         return;
       }
       if (ev.type === 'note') {
-        if (now - lastNoteAt < NOTE_EVERY_MS) {
+        const isError = /^error:/.test(String(ev.text));
+        if (!isError && now - lastNoteAt < NOTE_EVERY_MS) {
           droppedNotes++;
           return;
         }
@@ -93,8 +95,8 @@ function makeFormatter(label, write) {
 /** @param {string[]} argv @param {any} io */
 export async function run(argv, io) {
   const { found, rest } = extractOptionalValues(argv, ['since']);
-  const { positionals } = parseArgs(rest, {});
-  if (!positionals.length) throw new UsageError('usage: crewmate watch <id...> [--since=<n>]');
+  const { options, positionals } = parseArgs(rest, { booleanOptions: ['json'] });
+  if (!positionals.length) throw new UsageError('usage: crewmate watch <id...> [--since=<n>] [--json]');
   const since = found.since === undefined || found.since === true ? 0 : Number(found.since);
   if (!Number.isInteger(since) || since < 0) throw new UsageError('--since needs a non-negative integer');
   const ws = resolveWorkspace(io.cwd, io.env);
@@ -106,13 +108,27 @@ export async function run(argv, io) {
     }
   }
   const multi = ids.length > 1;
+  const write = (s) => io.stdout.write(s);
   const state = new Map(
     ids.map((id) => {
       const job = readJob(ws, id);
       const label = multi ? `${job.vendor}:${id.slice(-4)}` : job.vendor;
-      return [id, { lastN: since, done: false, final: null, fmt: makeFormatter(label, (s) => io.stdout.write(s)), label }];
+      return [id, { lastN: since, done: false, final: null, label, fmt: makeFormatter(label, write) }];
     }),
   );
+
+  /** Print the closing line (or JSON end event) for one job and mark it done. */
+  const finish = (s, job, finalState, reason, endEvent) => {
+    s.fmt.flush();
+    if (options.json) {
+      write(`${JSON.stringify(endEvent ?? { n: s.lastN + 1, type: 'end', state: finalState, reason, outcome: job?.outcome ?? null })}\n`);
+    } else {
+      const line = endLine(job ?? { createdAt: new Date().toISOString() }, finalState, reason, s.lastN);
+      write(`${s.label} #${line.n} ${line.text}\n`);
+    }
+    s.done = true;
+    s.final = finalState;
+  };
 
   for (;;) {
     const now = Date.now();
@@ -120,31 +136,32 @@ export async function run(argv, io) {
       const s = state.get(id);
       if (s.done) continue;
       const job = readJob(ws, id);
-      const eff = effectiveState(job);
-      const events = readEvents(jobDir(ws, id), s.lastN);
+      if (!job) {
+        // Folder removed (pruned or deleted by hand) while watching.
+        finish(s, null, 'failed', 'job folder removed', null);
+        continue;
+      }
       let ended = null;
-      for (const ev of events) {
+      for (const ev of readEvents(jobDir(ws, id), s.lastN)) {
         s.lastN = ev.n;
-        if (ev.type === 'end') ended = ev;
-        s.fmt.event(ev, now);
-      }
-      s.fmt.tick(now);
-      const isFinal = ['done', 'failed', 'timeout', 'canceled'].includes(eff.state);
-      if (ended || isFinal) {
-        // A runner that ended normally writes `end` last; read once more so nothing is lost.
-        if (!ended && job.state !== eff.state) {
-          /* runner died without an end event */
-        } else if (!ended) {
-          continue; // stored final but end event not yet visible: next poll
+        if (ev.type === 'end') {
+          ended = ev;
+          break;
         }
-        s.fmt.flush();
-        const finalState = ended ? ended.state : eff.state;
-        const reason = ended ? ended.reason : eff.reason;
-        const line = endLine(readJob(ws, id) ?? job, finalState, reason, s.lastN);
-        io.stdout.write(`${s.label} #${line.n} ${line.text}\n`);
-        s.done = true;
-        s.final = finalState;
+        if (options.json) write(`${JSON.stringify(ev)}\n`);
+        else s.fmt.event(ev, now);
       }
+      if (!options.json) s.fmt.tick(now);
+      if (ended) {
+        finish(s, readJob(ws, id) ?? job, ended.state, ended.reason, ended);
+        continue;
+      }
+      const eff = effectiveState(job);
+      if (!FINAL.includes(eff.state)) continue;
+      // Final with no new end event. A live runner is about to append it; otherwise (runner died,
+      // job ended by `cancel`, or --since past the end line) report the stored final state.
+      if (FINAL.includes(job.state) && isAlive(job.runner)) continue;
+      finish(s, job, eff.state, eff.reason, null);
     }
     if ([...state.values()].every((s) => s.done)) break;
     await new Promise((r) => setTimeout(r, POLL_MS));

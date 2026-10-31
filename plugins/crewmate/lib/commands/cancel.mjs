@@ -2,7 +2,8 @@
 import { parseArgs } from '../vendored/args.mjs';
 import { UsageError, assertName } from '../names.mjs';
 import { resolveWorkspace } from '../workspace.mjs';
-import { readJob, writeJob } from '../jobs.mjs';
+import { readJob, writeJob, jobDir } from '../jobs.mjs';
+import { appendEndEvent } from '../events.mjs';
 import { effectiveState, isAlive } from '../liveness.mjs';
 
 const FINAL = ['done', 'failed', 'timeout', 'canceled'];
@@ -40,6 +41,7 @@ export async function run(argv, io) {
     job = readJob(ws, id);
     if (!job.runner) {
       writeJob(ws, { ...job, state: 'canceled', reason: 'canceled before start', endedAt: new Date().toISOString() });
+      appendEndEvent(jobDir(ws, id), { state: 'canceled', reason: 'canceled before start' });
       return print('canceled');
     }
   }
@@ -57,11 +59,18 @@ export async function run(argv, io) {
     job = readJob(ws, id);
     if (!FINAL.includes(job.state)) {
       writeJob(ws, { ...job, state: 'canceled', reason: 'canceled (runner killed)', endedAt: new Date().toISOString() });
+      appendEndEvent(jobDir(ws, id), { state: 'canceled', reason: 'canceled (runner killed)', outcome: job.outcome });
     }
     return print('canceled');
   }
-  // Runner gone: clean up a vendor process it left behind.
-  if (isAlive(job.vendorProcess)) signal(job.vendorProcess.pid, 'SIGTERM', true);
+  // Runner gone: clean up a vendor process (group) it left behind — SIGTERM, then SIGKILL.
+  if (isAlive(job.vendorProcess)) {
+    const vp = job.vendorProcess;
+    signal(vp.pid, 'SIGTERM', true);
+    const until = Date.now() + grace;
+    while (Date.now() < until && isAlive(vp)) await new Promise((r) => setTimeout(r, 100));
+    signal(vp.pid, 'SIGKILL', true);
+  }
   const eff = effectiveState(job);
   return print(eff.state, 'already ');
 }

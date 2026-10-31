@@ -26,6 +26,14 @@ commands:
   setup                         check Node and vendor CLIs
 `;
 
+// A closed stdout (e.g. `crewmate watch … | head -1`) is not an error.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (err) => {
+    if (/** @type {any} */ (err).code === 'EPIPE') process.exit(process.exitCode ?? 0);
+    throw err;
+  });
+}
+
 async function main() {
   const [name, ...rest] = process.argv.slice(2);
   const modPath = name && Object.prototype.hasOwnProperty.call(COMMANDS, name) ? COMMANDS[name] : null;

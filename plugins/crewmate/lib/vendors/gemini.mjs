@@ -1,6 +1,9 @@
 // Gemini adapter: Antigravity CLI `agy -p … --output-format stream-json`.
 import { parseJson, cut } from './index.mjs';
 
+export const READ_ONLY_NOTE =
+  'Note from crewmate: this run is read-only. Read files with your file tools (read_file, list_dir, grep_search); shell commands and file edits are not available and will be denied.';
+
 /** @param {any} params */
 function firstString(params) {
   for (const v of Object.values(params ?? {})) if (typeof v === 'string') return v;
@@ -13,6 +16,9 @@ export const geminiAdapter = {
 
   buildArgs(job, prompt) {
     const f = job.flags ?? {};
+    // Without this note agy tries shell commands, is denied in headless mode, and often gives up
+    // with an empty answer (recorded 2026-11-01).
+    if (!f.write && !f.yolo) prompt = `${prompt}\n\n${READ_ONLY_NOTE}`;
     const secs = Math.ceil((f.timeoutMs ?? 600_000) / 1000) + 30; // past crewmate's own deadline
     const args = ['-p', prompt, '--output-format', 'stream-json', '--print-timeout', `${secs}s`];
     // Read-only: no --mode. Headless agy runs in `request-review` and denies anything that needs
@@ -27,7 +33,7 @@ export const geminiAdapter = {
 
   createParser() {
     /** @type {import('./index.mjs').ParsedOutcome} */
-    const out = { conversationId: null, answer: null, deniedTools: [], toolErrors: [], usage: null, vendorError: null, permissionMode: null };
+    const out = { conversationId: null, answer: null, deniedTools: [], toolErrors: [], usage: null, vendorError: null, permissionMode: null, timedOut: false };
     const started = new Set();
     /** @type {Map<number, string>} */
     const text = new Map();
@@ -75,6 +81,7 @@ export const geminiAdapter = {
           out.answer = typeof r.response === 'string' ? r.response : '';
           out.deniedTools = (r.denied_actions ?? []).map((d) => String(d.display_name ?? d.action ?? 'unknown'));
           if (r.status !== 'SUCCESS') out.vendorError = `agy status ${r.status ?? 'unknown'}`;
+          if (r.finished_reason === 'print_timeout') out.timedOut = true;
           if (r.usage) {
             out.usage = { input: r.usage.input_tokens ?? 0, output: r.usage.output_tokens ?? 0 };
             return [{ type: 'usage', ...out.usage }];

@@ -5,6 +5,7 @@ const argv = process.argv.slice(2);
 const env = process.env;
 if (argv[0] === '--version') { console.log('fake 0.0.0'); process.exit(0); }
 if (argv[0] === 'login' && argv[1] === 'status') { console.log('Logged in'); process.exit(Number(env.FAKE_LOGIN_EXIT ?? 0)); }
+if (env.FAKE_PWD_FILE) fs.writeFileSync(env.FAKE_PWD_FILE, process.cwd());
 if (env.FAKE_ARGV_LOG) fs.appendFileSync(env.FAKE_ARGV_LOG, JSON.stringify(argv) + '\n');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hang = () => setInterval(() => {}, 1 << 30);

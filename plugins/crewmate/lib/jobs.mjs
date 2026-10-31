@@ -13,7 +13,7 @@ import path from 'node:path';
  *            flags: JobFlags, state: string, reason: string|null, createdAt: string,
  *            startedAt: string|null, endedAt: string|null, runner: ProcRef|null,
  *            vendorProcess: ProcRef|null, vendorConversationId: string|null,
- *            outcome: Outcome|null}} Job
+ *            outcome: Outcome|null, cwd?: string}} Job
  * @typedef {import('./workspace.mjs').Workspace} Workspace
  */
 
@@ -43,7 +43,7 @@ export function jobDir(ws, id) {
 /**
  * Create the job folder and write job.json with state `queued`.
  * @param {Workspace} ws
- * @param {{vendor: string, kind: string, promptSummary: string, flags: JobFlags}} fields
+ * @param {{vendor: string, kind: string, promptSummary: string, flags: JobFlags, cwd?: string}} fields
  * @param {(vendor: string) => string} [makeId]
  * @returns {Job}
  */
@@ -75,6 +75,7 @@ export function createJob(ws, fields, makeId = newJobId) {
     vendorProcess: null,
     vendorConversationId: null,
     outcome: null,
+    cwd: fields.cwd,
   };
   writeJob(ws, job);
   return job;

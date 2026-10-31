@@ -163,3 +163,135 @@ test('CP2-3: cancel on a queued job with no runner yet marks it canceled, and a 
   await new Promise((r) => setTimeout(r, 800));
   assert.equal(readJob(ws, job.id).state, 'canceled');
 });
+
+// ---- Checkpoint 3 review + dogfood critique findings ----
+import { appendEvent, readEvents } from '../plugins/crewmate/lib/events.mjs';
+
+test('CP3-1a: watch on a job canceled before start exits 5 instead of hanging', async () => {
+  const { cli, ws } = setup();
+  const job = createJob(ws, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 5000 } });
+  await cli(['cancel', job.id], { env: { CREWMATE_SPAWN_GRACE_MS: '200' } });
+  const t0 = Date.now();
+  const w = await cli(['watch', job.id]);
+  assert.equal(w.code, 5);
+  assert.ok(Date.now() - t0 < 2000);
+  assert.equal(readEvents(jobDir(ws, job.id)).at(-1).type, 'end', 'cancel wrote an end event');
+});
+
+test('CP3-1b: watch --since past the end line exits at once with the final state', async () => {
+  const { cli, ws } = setup();
+  const id = idOf(await cli(['ask', 'codex', '--detach', 'x'], { env: { FAKE_FIXTURE: fx('codex.ndjson') } }));
+  await finalOf(ws, id);
+  const last = readEvents(jobDir(ws, id)).at(-1).n;
+  const t0 = Date.now();
+  const w = await cli(['watch', id, `--since=${last}`]);
+  assert.equal(w.code, 0);
+  assert.ok(Date.now() - t0 < 2000);
+  assert.match(w.stdout, /■ done/);
+});
+
+test('CP3-1c: watch on a job saved final whose runner died before writing end exits', async () => {
+  const { cli, ws } = setup();
+  const job = createJob(ws, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: {} });
+  writeJob(ws, { ...job, state: 'done', runner: { pid: 999999, startTime: 'x' }, endedAt: new Date().toISOString() });
+  appendEvent(jobDir(ws, job.id), { n: 1, type: 'started', vendor: 'codex', model: null });
+  const w = await cli(['watch', job.id]);
+  assert.equal(w.code, 0);
+  assert.match(w.stdout, /■ done/);
+});
+
+test('CP3-1d: watch on a pruned job folder exits 1 instead of crashing', async () => {
+  const { cli, ws } = setup();
+  const job = createJob(ws, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 5000 } });
+  const watching = cli(['watch', job.id]);
+  await new Promise((r) => setTimeout(r, 400));
+  fs.rmSync(jobDir(ws, job.id), { recursive: true, force: true });
+  const w = await watching;
+  assert.equal(w.code, 1);
+  assert.match(w.stdout + w.stderr, /removed/);
+});
+
+test('CP3-2: --resume=<id> of another vendor\'s job → exit 2', async () => {
+  const { cli, ws } = setup();
+  const g = idOf(await cli(['ask', 'gemini', '--detach', 'x'], { env: { FAKE_FIXTURE: fx('agy-denied-with-answer.ndjson') } }));
+  await finalOf(ws, g);
+  const r = await cli(['ask', 'codex', `--resume=${g}`, 'again']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /gemini job/);
+});
+
+test('CP3-3: a runner that starts after the spawn grace does not run the job', async () => {
+  const { ws, home } = setup();
+  const job = createJob(ws, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 5000 } });
+  fs.writeFileSync(path.join(jobDir(ws, job.id), 'prompt.txt'), 'x');
+  writeJob(ws, { ...job, createdAt: new Date(Date.now() - 60_000).toISOString() });
+  const log = path.join(tempDir(), 'argv.log');
+  spawnRunner(ws, job.id, { PATH: fakePath(['codex']), HOME: home, CREWMATE_HOME: home, FAKE_FIXTURE: fx('codex.ndjson'), FAKE_ARGV_LOG: log });
+  await waitFor(() => readJob(ws, job.id).state === 'failed', 5000);
+  assert.equal(readJob(ws, job.id).reason, 'runner never started');
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(fs.existsSync(log), false);
+});
+
+test('CP3-4: error notes are never throttled away', async () => {
+  const { cli } = setup();
+  const r = await cli(['ask', 'codex', 'x'], { env: { FAKE_FIXTURE: fx('codex-reconnect.ndjson') } });
+  assert.match(r.stdout, /error: Reconnecting/);
+});
+
+test('CP3-5/6: critique --diff with a positional ref → 2; missing --prompt-file → 2 with a short message', async () => {
+  const { cli } = setup();
+  const d = await cli(['critique', '--diff', 'main']);
+  assert.equal(d.code, 2);
+  assert.match(d.stderr, /--diff=<ref>/);
+  const p = await cli(['ask', 'codex', '--prompt-file', 'nope.txt']);
+  assert.equal(p.code, 2);
+  assert.doesNotMatch(p.stderr, /at Module/);
+});
+
+test('CP3-7: a closed stdout does not crash crewmate', async () => {
+  const { home, cwd } = setup();
+  const r = spawnSyncShell(`node "${BIN_PATH}" ask codex x | head -1`, { cwd, env: { PATH: fakePath(['codex']), HOME: home, CREWMATE_HOME: home, FAKE_FIXTURE: fx('codex.ndjson'), FAKE_DELAY_MS: '100' } });
+  assert.doesNotMatch(r.stderr, /EPIPE|Error/);
+});
+
+test('CP3-8: cancel SIGKILLs a leftover vendor group that ignores SIGTERM', async () => {
+  const { cli, ws } = setup();
+  const pidFile = path.join(tempDir(), 'gc.pid');
+  const id = idOf(await cli(['ask', 'codex', '--detach', 'x'], { env: { FAKE_HANG: '1', FAKE_GRANDCHILD_PID_FILE: pidFile } }));
+  const j = await waitFor(() => { const r = readJob(ws, id); return r?.runner && r?.vendorProcess ? r : null; });
+  await waitFor(() => fs.existsSync(pidFile));
+  process.kill(j.runner.pid, 'SIGKILL');
+  await cli(['cancel', id], { env: { CREWMATE_CANCEL_GRACE_MS: '300' } });
+  const gc = Number(fs.readFileSync(pidFile, 'utf8'));
+  await waitFor(() => processStartTime(gc) === null, 3000);
+});
+
+test('dogfood: the vendor runs in the caller\'s folder, not the repo root', async () => {
+  const { cli, cwd, ws } = setup();
+  spawnSyncShell(`git init -q "${cwd}" && mkdir -p "${cwd}/sub"`);
+  const log = path.join(tempDir(), 'pwd.txt');
+  const id = idOf(await cli(['ask', 'codex', '--detach', 'x'], { cwd: path.join(cwd, 'sub'), env: { FAKE_FIXTURE: fx('codex.ndjson'), FAKE_PWD_FILE: log } }));
+  await finalOf(ws, id);
+  assert.equal(fs.readFileSync(log, 'utf8').trim(), fs.realpathSync(path.join(cwd, 'sub')));
+});
+
+test('dogfood: ask --json in the foreground prints one JSON object; watch --json prints raw events', async () => {
+  const { cli } = setup();
+  const r = await cli(['ask', 'codex', '--json', 'x'], { env: { FAKE_FIXTURE: fx('codex.ndjson') } });
+  assert.equal(r.code, 0);
+  const lines = r.stdout.trim().split('\n');
+  assert.equal(lines.length, 1);
+  const body = JSON.parse(lines[0]);
+  assert.equal(body.state, 'done');
+  assert.equal(body.answer, 'done');
+  const w = await cli(['watch', body.jobId, '--json']);
+  assert.equal(w.code, 0);
+  for (const l of w.stdout.trim().split('\n')) assert.ok(JSON.parse(l).type);
+});
+
+import { spawnSync as _spawnSync } from 'node:child_process';
+import { BIN as BIN_PATH } from './helpers.mjs';
+function spawnSyncShell(cmd, opts = {}) {
+  return _spawnSync('sh', ['-c', cmd], { encoding: 'utf8', ...opts });
+}

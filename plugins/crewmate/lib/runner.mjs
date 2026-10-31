@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolveWorkspace } from './workspace.mjs';
 import { readJob, writeJob, jobDir, FINAL_STATES } from './jobs.mjs';
-import { appendEvent } from './events.mjs';
+import { appendEvent, appendEndEvent } from './events.mjs';
 import { processStartTime } from './liveness.mjs';
 import { releaseWriter } from './lock.mjs';
 import { assertName } from './names.mjs';
@@ -62,6 +62,14 @@ export function runJob(ws, jobId, env) {
   if (!job) throw new Error(`no such job: ${jobId}`);
   // Never restart a job that already ended (e.g. canceled before start) or already has a runner.
   if (FINAL_STATES.includes(job.state) || job.runner) return Promise.resolve();
+  // A runner that starts after the spawn grace (sleep, heavy load) must not run a job that
+  // status/watch already reported as never started.
+  const spawnGrace = Number(env.CREWMATE_SPAWN_GRACE_MS ?? 10_000);
+  if (Date.now() - Date.parse(job.createdAt) > spawnGrace) {
+    writeJob(ws, { ...job, state: 'failed', reason: 'runner never started', endedAt: new Date().toISOString() });
+    appendEndEvent(dir, { state: 'failed', reason: 'runner never started' });
+    return Promise.resolve();
+  }
 
   const adapter = getAdapter(job.vendor);
   const resultFile = path.join(dir, 'result.md');
@@ -143,8 +151,16 @@ export function runJob(ws, jobId, env) {
     process.on('SIGTERM', () => end('canceled', 'canceled'));
 
     try {
+      const startTime = processStartTime(process.pid);
+      const fresh = readJob(ws, jobId); // cancel may have run while `ps` was working
+      if (!fresh || FINAL_STATES.includes(fresh.state)) {
+        ended = true;
+        resolve(undefined);
+        return;
+      }
+      job = fresh;
       save({
-        runner: { pid: process.pid, startTime: processStartTime(process.pid) },
+        runner: { pid: process.pid, startTime },
         state: 'running',
         startedAt: new Date().toISOString(),
       });
@@ -152,7 +168,7 @@ export function runJob(ws, jobId, env) {
       const prompt = fs.readFileSync(path.join(dir, 'prompt.txt'), 'utf8');
 
       child = spawn(adapter.binary, adapter.buildArgs(job, prompt, resultFile), {
-        cwd: ws.root,
+        cwd: job.cwd && fs.existsSync(job.cwd) ? job.cwd : ws.root,
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
         env,
@@ -204,6 +220,10 @@ export function runJob(ws, jobId, env) {
       const settle = () => {
         if (ended || exitCode === undefined || !stdoutDone) return;
         const parsed = parser.finish();
+        if (parsed.timedOut) {
+          end('timeout', 'agy stopped at its print timeout', exitCode);
+          return;
+        }
         if (exitCode !== 0 || parsed.vendorError) {
           const why =
             parsed.vendorError ??

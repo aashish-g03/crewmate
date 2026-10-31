@@ -57,12 +57,12 @@ export function summarize(prompt) {
 /**
  * Create, lock (if writing) and spawn one job. Returns {jobId} or {code, message}.
  * @param {import('../workspace.mjs').Workspace} ws
- * @param {{vendor: string, kind: 'ask'|'critique', prompt: string, flags: any}} spec
+ * @param {{vendor: string, kind: 'ask'|'critique', prompt: string, flags: any, cwd?: string}} spec
  * @param {NodeJS.ProcessEnv} env
  */
 export function launchJob(ws, spec, env) {
   pruneJobs(ws, isPrunable);
-  const job = createJob(ws, { vendor: spec.vendor, kind: spec.kind, promptSummary: summarize(spec.prompt), flags: spec.flags });
+  const job = createJob(ws, { vendor: spec.vendor, kind: spec.kind, promptSummary: summarize(spec.prompt), flags: spec.flags, cwd: spec.cwd });
   fs.writeFileSync(path.join(jobDir(ws, job.id), 'prompt.txt'), spec.prompt);
   if (spec.flags.write || spec.flags.yolo) {
     const got = acquireWriter(ws, job.id, env);
@@ -102,7 +102,13 @@ export async function run(argv, io) {
   const timeoutMs = options.timeout ? parseDuration(options.timeout) : DEFAULT_TIMEOUT_MS;
 
   let prompt = words.join(' ');
-  if (!prompt.trim() && options['prompt-file']) prompt = fs.readFileSync(path.resolve(io.cwd, options['prompt-file']), 'utf8');
+  if (!prompt.trim() && options['prompt-file']) {
+    try {
+      prompt = fs.readFileSync(path.resolve(io.cwd, options['prompt-file']), 'utf8');
+    } catch (err) {
+      throw new UsageError(`cannot read --prompt-file ${options['prompt-file']}: ${err.code ?? err.message}`);
+    }
+  }
   if (!prompt.trim() && !words.length && !options['prompt-file']) prompt = await readStdin(io.stdin);
   if (!prompt.trim()) throw new UsageError('empty prompt');
   if (Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) throw new UsageError(`prompt too large (over ${MAX_PROMPT_BYTES} bytes)`);
@@ -122,6 +128,7 @@ export async function run(argv, io) {
         ? jobs.find((j) => j.vendor === vendor && j.kind === 'ask' && j.vendorConversationId)
         : jobs.find((j) => j.id === assertName('job', /** @type {string} */ (found.resume)));
     if (!target || !target.vendorConversationId) throw new UsageError('nothing to resume');
+    if (target.vendor !== vendor) throw new UsageError(`${target.id} is a ${target.vendor} job; resume it with: crewmate ask ${target.vendor} --resume=${target.id}`);
     const busy = jobs.find((j) => j.vendor === vendor && RUNNING.includes(effectiveState(j).state));
     if (busy) {
       io.stderr.write(`crewmate: a ${vendor} job is still running: ${busy.id}\n`);
@@ -138,13 +145,30 @@ export async function run(argv, io) {
     timeoutMs,
     resumeConversationId,
   };
-  const res = launchJob(ws, { vendor, kind: 'ask', prompt, flags }, io.env);
+  const res = launchJob(ws, { vendor, kind: 'ask', prompt, flags, cwd: fs.realpathSync(io.cwd) }, io.env);
   if ('code' in res) {
     io.stderr.write(`crewmate: ${res.message}\n`);
     return res.code;
   }
-  io.stdout.write(options.json ? `${JSON.stringify({ jobId: res.jobId })}\n` : `${res.jobId}\n`);
-  if (options.detach) return 0;
+  if (options.detach) {
+    io.stdout.write(options.json ? `${JSON.stringify({ jobId: res.jobId })}\n` : `${res.jobId}\n`);
+    return 0;
+  }
   const watch = await import('./watch.mjs');
-  return watch.run([res.jobId], io);
+  if (!options.json) {
+    io.stdout.write(`${res.jobId}\n`);
+    return watch.run([res.jobId], io);
+  }
+  // --json in the foreground: watch silently, then print one JSON object.
+  const sink = { ...io, stdout: { write: () => true } };
+  const code = await watch.run([res.jobId], sink);
+  const { withEffective } = await import('./status.mjs');
+  const { readJob } = await import('../jobs.mjs');
+  const job = withEffective(readJob(ws, res.jobId));
+  let answer = '';
+  try {
+    answer = fs.readFileSync(path.join(jobDir(ws, res.jobId), 'result.md'), 'utf8');
+  } catch {}
+  io.stdout.write(`${JSON.stringify({ jobId: res.jobId, state: job.state, reason: job.reason, answer, outcome: job.outcome })}\n`);
+  return code;
 }

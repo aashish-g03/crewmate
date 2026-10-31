@@ -27,6 +27,16 @@ export function appendEvent(dir, ev) {
 }
 
 /**
+ * Append an `end` event after whatever is already in the log (for writers other than the runner,
+ * e.g. `cancel` marking a job it had to kill or that never started).
+ * @param {string} dir @param {{state: string, reason: string|null, outcome?: any}} fin
+ */
+export function appendEndEvent(dir, fin) {
+  const last = readEvents(dir).at(-1)?.n ?? 0;
+  appendEvent(dir, { n: last + 1, type: 'end', state: fin.state, reason: fin.reason, outcome: fin.outcome ?? null });
+}
+
+/**
  * Complete lines with n > sinceN. A trailing partial line is ignored.
  * @param {string} dir
  * @param {number} [sinceN]

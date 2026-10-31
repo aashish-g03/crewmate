@@ -267,3 +267,10 @@ test('CP2-declined: the writer lock is not taken over while the dead holder\'s v
   assert.equal(acquireWriter(w, 'codex-me-bbbb').ok, false);
   victim.kill('SIGKILL');
 });
+
+test('gemini: agy finished_reason print_timeout → timeout, not an empty answer', async () => {
+  const { w, id } = startJob('gemini', { env: { FAKE_FIXTURE: fixture('agy-print-timeout.ndjson') } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'timeout');
+  assert.match(j.reason, /print timeout/);
+});

@@ -14,7 +14,8 @@ const TESTING_RULE = new URL('../testing-rule.md', import.meta.url);
 /** @param {string} target */
 export function buildCritiquePrompt(target) {
   const tpl = fs.readFileSync(TEMPLATE, 'utf8').replace(/^<!--[\s\S]*?-->\n/, '');
-  return tpl.replace('{{TARGET}}', () => target).replace('{{TESTING_RULE}}', () => fs.readFileSync(TESTING_RULE, 'utf8').trim());
+  // Fill the testing rule first: a diff of the template itself may contain the literal {{TESTING_RULE}}.
+  return tpl.replace('{{TESTING_RULE}}', () => fs.readFileSync(TESTING_RULE, 'utf8').trim()).replace('{{TARGET}}', () => target);
 }
 
 /** @param {string[]} argv @param {any} io */
@@ -28,7 +29,8 @@ export async function run(argv, io) {
   }
   const { options, positionals } = parsed;
   if (!positionals.length && found.diff === undefined) throw new UsageError('nothing to critique (give file paths or --diff)');
-  const vendors = (options.vendors ? String(options.vendors).split(',') : [...VENDORS]).map((v) => assertName('vendor', v.trim()));
+  if (found.diff !== undefined && positionals.length) throw new UsageError('give either paths or --diff; for a ref use --diff=<ref>');
+  const vendors = [...new Set((options.vendors ? String(options.vendors).split(',') : [...VENDORS]).map((v) => assertName('vendor', v.trim())))];
 
   let target;
   if (found.diff !== undefined) {
@@ -39,7 +41,9 @@ export async function run(argv, io) {
       const ref = found.diff === true ? null : found.diff;
       const ctx = collectReviewContext(ws.root, resolveReviewTarget(ws.root, ref ? { base: ref } : { scope: 'working-tree' }), { includeDiff: true });
       target = `${ctx.summary}\n\n${ctx.content}`;
-    } catch {
+    } catch (err) {
+      const msg = String(err?.message ?? err);
+      if (/unknown revision|bad revision|ambiguous argument|not a valid/i.test(msg)) throw new UsageError(`unknown git ref: ${found.diff}`);
       throw new UsageError('diff too large or unreadable; pass file paths instead');
     }
   } else {
@@ -60,7 +64,7 @@ export async function run(argv, io) {
   const timeoutMs = options.timeout ? (await import('../names.mjs')).parseDuration(options.timeout) : 600_000;
   const ids = [];
   for (const vendor of ready) {
-    const res = launchJob(ws, { vendor, kind: 'critique', prompt, flags: { write: false, yolo: false, model: null, effort: null, timeoutMs, resumeConversationId: null } }, io.env);
+    const res = launchJob(ws, { vendor, kind: 'critique', prompt, cwd: fs.realpathSync(io.cwd), flags: { write: false, yolo: false, model: null, effort: null, timeoutMs, resumeConversationId: null } }, io.env);
     if ('jobId' in res) ids.push(res.jobId);
   }
   io.stdout.write(options.json ? `${JSON.stringify({ jobIds: ids })}\n` : `${ids.join('\n')}\n`);
