@@ -88,7 +88,7 @@ export async function run(argv, io) {
   try {
     parsed = parseArgs(rest, {
       valueOptions: ['model', 'effort', 'timeout', 'prompt-file'],
-      booleanOptions: ['detach', 'write', 'yolo', 'json'],
+      booleanOptions: ['detach', 'write', 'yolo', 'json', 'brief'],
     });
   } catch (err) {
     throw new UsageError(err.message);
@@ -157,7 +157,7 @@ export async function run(argv, io) {
   const watch = await import('./watch.mjs');
   if (!options.json) {
     io.stdout.write(`${res.jobId}\n`);
-    return watch.run([res.jobId], io);
+    return watch.run(options.brief ? [res.jobId, '--brief'] : [res.jobId], io);
   }
   // --json in the foreground: watch silently, then print one JSON object.
   const sink = { ...io, stdout: { write: () => true } };

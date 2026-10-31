@@ -295,3 +295,28 @@ import { BIN as BIN_PATH } from './helpers.mjs';
 function spawnSyncShell(cmd, opts = {}) {
   return _spawnSync('sh', ['-c', cmd], { encoding: 'utf8', ...opts });
 }
+
+test('watch --brief (for Monitor): finished many-reads job prints only the start and end lines', async () => {
+  const { cli, ws } = setup();
+  const id = idOf(await cli(['ask', 'gemini', '--detach', 'x'], { env: { FAKE_FIXTURE: fx('agy-many-reads.ndjson') } }));
+  await finalOf(ws, id);
+  const w = await cli(['watch', id, '--brief']);
+  assert.equal(w.code, 0);
+  const lines = w.stdout.trim().split('\n');
+  assert.equal(lines.length, 2, lines.join('\n'));
+  assert.match(lines[0], /started/);
+  assert.match(lines[1], /■ done/);
+});
+
+test('watch --brief: a summary line per interval while running, errors at once', async () => {
+  const { cli } = setup();
+  const r = await cli(['ask', 'gemini', '--brief', 'x'], {
+    env: { FAKE_FIXTURE: fx('agy-many-reads.ndjson'), FAKE_DELAY_MS: '40', CREWMATE_BRIEF_EVERY_MS: '300' },
+  });
+  assert.equal(r.code, 0, r.stdout);
+  const lines = r.stdout.trim().split('\n');
+  assert.ok(lines.some((l) => /\d+ tool steps/.test(l)), lines.join('\n'));
+  assert.ok(lines.length < 12, `${lines.length} lines`);
+  const e = await cli(['ask', 'gemini', '--brief', 'x'], { env: { FAKE_FIXTURE: fx('agy-denied-with-answer.ndjson') } });
+  assert.match(e.stdout, /✗ run_command/);
+});

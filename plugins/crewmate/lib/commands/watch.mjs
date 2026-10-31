@@ -27,6 +27,41 @@ function endLine(job, state, reason, n) {
   return { n, text: parts.join('; ') };
 }
 
+/**
+ * Brief mode (for Claude Code's Monitor, where every line wakes Claude): the start, errors at once,
+ * one progress summary per interval, and the end.
+ */
+function makeBriefFormatter(label, write, everyMs) {
+  let steps = 0;
+  let lastSummarizedSteps = 0;
+  let lastSummaryAt = Date.now();
+  let last = '';
+  let lastN = 0;
+  const out = (n, text) => write(`${label} #${n} ${text}\n`);
+  return {
+    flush() {},
+    tick(now) {
+      if (steps > lastSummarizedSteps && now - lastSummaryAt >= everyMs) {
+        out(lastN, `… ${steps} tool steps so far, last: ${last}`);
+        lastSummarizedSteps = steps;
+        lastSummaryAt = now;
+      }
+    },
+    event(ev, now) {
+      lastN = ev.n;
+      if (ev.type === 'started') return out(ev.n, `● started${ev.model ? ` (${ev.model})` : ''}`);
+      if (ev.type === 'tool') {
+        if (ev.phase === 'start') return;
+        steps++;
+        last = `${ev.name}${ev.target ? ` ${ev.target}` : ''}`;
+        if (ev.phase === 'error') out(ev.n, `✗ ${last}`);
+        return;
+      }
+      if (ev.type === 'note' && /^(error:|continuing)/.test(String(ev.text))) out(ev.n, `… ${ev.text}`);
+    },
+  };
+}
+
 /** One job's line formatter with merging and note throttling. */
 function makeFormatter(label, write) {
   /** @type {{name: string, count: number, n: number, at: number}|null} */
@@ -95,8 +130,9 @@ function makeFormatter(label, write) {
 /** @param {string[]} argv @param {any} io */
 export async function run(argv, io) {
   const { found, rest } = extractOptionalValues(argv, ['since']);
-  const { options, positionals } = parseArgs(rest, { booleanOptions: ['json'] });
-  if (!positionals.length) throw new UsageError('usage: crewmate watch <id...> [--since=<n>] [--json]');
+  const { options, positionals } = parseArgs(rest, { booleanOptions: ['json', 'brief'] });
+  if (!positionals.length) throw new UsageError('usage: crewmate watch <id...> [--since=<n>] [--brief] [--json]');
+  const briefEvery = Number(io.env.CREWMATE_BRIEF_EVERY_MS ?? 60_000);
   const since = found.since === undefined || found.since === true ? 0 : Number(found.since);
   if (!Number.isInteger(since) || since < 0) throw new UsageError('--since needs a non-negative integer');
   const ws = resolveWorkspace(io.cwd, io.env);
@@ -113,7 +149,8 @@ export async function run(argv, io) {
     ids.map((id) => {
       const job = readJob(ws, id);
       const label = multi ? `${job.vendor}:${id.slice(-4)}` : job.vendor;
-      return [id, { lastN: since, done: false, final: null, label, fmt: makeFormatter(label, write) }];
+      const fmt = options.brief ? makeBriefFormatter(label, write, briefEvery) : makeFormatter(label, write);
+      return [id, { lastN: since, done: false, final: null, label, fmt }];
     }),
   );
 

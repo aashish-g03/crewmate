@@ -152,7 +152,8 @@ test('a write job releases the writer lock at its end', async () => {
   assert.deepEqual(acquireWriter(w, job.id), { ok: true });
   spawnRunner(w, job.id, { PATH: fakePath(['codex']), CREWMATE_HOME: home, HOME: home, FAKE_FIXTURE: fixture('codex.ndjson') });
   await finalOf(w, job.id);
-  assert.equal(fs.existsSync(path.join(w.stateDir, 'writer.lock')), false);
+  // released in the runner's finally, just after the final state is saved
+  await waitFor(() => !fs.existsSync(path.join(w.stateDir, 'writer.lock')), 3000);
 });
 
 function lockWs() {
@@ -273,4 +274,28 @@ test('gemini: agy finished_reason print_timeout → timeout, not an empty answer
   const j = await finalOf(w, id);
   assert.equal(j.state, 'timeout');
   assert.match(j.reason, /print timeout/);
+});
+
+test('gemini: an empty answer after a denied tool continues the conversation once and uses that answer', async () => {
+  const log = path.join(tempDir(), 'argv.log');
+  const { w, id } = startJob('gemini', {
+    env: { FAKE_FIXTURE: fixture('agy2.ndjson'), FAKE_FIXTURE_RESUME: fixture('agy-denied-with-answer.ndjson'), FAKE_ARGV_LOG: log },
+  });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'done', j.reason);
+  assert.equal(fs.readFileSync(path.join(jobDir(w, id), 'result.md'), 'utf8'), 'done');
+  const calls = fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].join(' ').includes('--conversation 7d51723c-e9b2-4e89-859b-bfe94a357739'));
+  assert.ok(readEvents(jobDir(w, id)).some((e) => e.type === 'note' && /continuing/.test(e.text)));
+  assert.equal(readEvents(jobDir(w, id)).filter((e) => e.type === 'end').length, 1);
+});
+
+test('gemini: the continuation happens at most once', async () => {
+  const log = path.join(tempDir(), 'argv.log');
+  const { w, id } = startJob('gemini', { env: { FAKE_FIXTURE: fixture('agy2.ndjson'), FAKE_ARGV_LOG: log } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'failed');
+  assert.match(j.reason, /^vendor returned no answer/);
+  assert.equal(fs.readFileSync(log, 'utf8').trim().split('\n').length, 2);
 });

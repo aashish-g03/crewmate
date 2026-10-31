@@ -17,7 +17,8 @@ if (env.FAKE_GRANDCHILD_PID_FILE) {
 }
 if (env.FAKE_HANG === '1') hang();
 else {
-  const lines = env.FAKE_FIXTURE ? fs.readFileSync(env.FAKE_FIXTURE, 'utf8').split('\n').filter(Boolean) : [];
+  const fixture = argv.includes('--conversation') && env.FAKE_FIXTURE_RESUME ? env.FAKE_FIXTURE_RESUME : env.FAKE_FIXTURE;
+  const lines = fixture ? fs.readFileSync(fixture, 'utf8').split('\n').filter(Boolean) : [];
   const hangAfter = env.FAKE_HANG_AFTER === undefined ? Infinity : Number(env.FAKE_HANG_AFTER);
   const delay = Number(env.FAKE_DELAY_MS ?? 0);
   let i = 0;

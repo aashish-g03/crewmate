@@ -6,14 +6,24 @@
   "type": "module",
   "license": "MIT",
   "author": "Aashish Gupta",
-  "repository": { "type": "git", "url": "git+https://github.com/aashish-g03/crewmate.git" },
-  "bugs": { "url": "https://github.com/aashish-g03/crewmate/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aashish-g03/crewmate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aashish-g03/crewmate/issues"
+  },
   "homepage": "https://github.com/aashish-g03/crewmate#readme",
-  "engines": { "node": ">=20" },
-  "bin": { "crewmate": "plugins/crewmate/bin/crewmate" },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "crewmate": "plugins/crewmate/bin/crewmate"
+  },
   "scripts": {
     "test": "node --test --test-timeout=60000 tests/",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "e2e": "node scripts/e2e-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
