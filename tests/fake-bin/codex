@@ -1,0 +1,29 @@
+#!/usr/bin/env node
+// Fake `codex` for tests: replays $FAKE_FIXTURE. See tests/fake-bin/README in AGENTS.md.
+import fs from 'node:fs';
+const argv = process.argv.slice(2);
+const env = process.env;
+if (argv[0] === '--version') { console.log('fake 0.0.0'); process.exit(0); }
+if (argv[0] === 'login' && argv[1] === 'status') { console.log('Logged in'); process.exit(Number(env.FAKE_LOGIN_EXIT ?? 0)); }
+if (env.FAKE_ARGV_LOG) fs.appendFileSync(env.FAKE_ARGV_LOG, JSON.stringify(argv) + '\n');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const hang = () => setInterval(() => {}, 1 << 30);
+if (env.FAKE_HANG === '1') hang();
+else {
+  const lines = env.FAKE_FIXTURE ? fs.readFileSync(env.FAKE_FIXTURE, 'utf8').split('\n').filter(Boolean) : [];
+  const hangAfter = env.FAKE_HANG_AFTER === undefined ? Infinity : Number(env.FAKE_HANG_AFTER);
+  const delay = Number(env.FAKE_DELAY_MS ?? 0);
+  let i = 0;
+  for (const line of lines) {
+    if (i >= hangAfter) break;
+    if (delay && i > 0) await sleep(delay);
+    process.stdout.write(line + '\n');
+    i++;
+  }
+  if (i < lines.length || hangAfter <= lines.length) hang();
+  else {
+    const o = argv.indexOf('-o');
+    if (o >= 0) fs.writeFileSync(argv[o + 1], env.FAKE_ANSWER ?? 'done');
+    process.exit(Number(env.FAKE_EXIT ?? 0));
+  }
+}
