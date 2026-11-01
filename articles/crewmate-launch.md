@@ -6,7 +6,7 @@ tags: claudecode, ai, opensource, productivity
 cover_image: ../assets/launch/cover.png
 ---
 
-> **TL;DR** crewmate is a Claude Code plugin that lets Claude hand a task to OpenAI Codex or Google Gemini, keep working, and watch every step land in the conversation. It installs with **2 commands** and has **0 runtime dependencies**. It passes **16/16** checks against the real Codex and Gemini command-line tools, and **115** failure-mode tests. Asked to review crewmate's own lock code, **both** models found the same race condition, one my plan had accepted as too rare. If Codex is the only other model you use, OpenAI's own plugin does **not** lose to this, and I say why below. Tested on macOS.
+> **TL;DR** crewmate is a Claude Code plugin that lets Claude hand a task to OpenAI Codex or Google Gemini, keep working, and watch every step land in the conversation. It installs with **2 commands** and has **0 runtime dependencies**. It passes **16/16** checks against the real Codex and Gemini command-line tools, and **115** failure-mode tests. Asked to review crewmate's own lock code, **both** models found the same race condition, one my plan had accepted as too rare. If Codex is the only other model you use, OpenAI's own plugin is the better choice, and I say why below. Tested on macOS.
 >
 > [Code](https://github.com/aashish-g03/crewmate) | [End-to-end report](https://github.com/aashish-g03/crewmate/blob/main/docs/release/1.0.0-e2e.md) | [Release check in real Claude Code sessions](https://github.com/aashish-g03/crewmate/blob/main/docs/release/1.0.0-check.md)
 
@@ -84,9 +84,9 @@ My plan had accepted that race as too rare to matter. Codex even quoted that lin
 Each of these only showed up against the real tools:
 
 - **Gemini's plan mode turned questions into plans.** Asked what a file does, it replied *"I have reviewed add.js and prepared an implementation plan for your request."* Read-only runs now use agy's default non-interactive mode. *(Real run.)*
-- **agy gives up after a denied tool.** Read-only, it tried `ls`, was denied, and ended with an empty answer marked `SUCCESS`. crewmate counts an empty answer as a failure and continues the conversation once with "use your file tools". In my test that recovered a real answer. *(Release check in Claude Code.)*
+- **agy gives up after a denied tool.** Read-only, it tried `ls`, was denied, and ended with an empty answer marked `SUCCESS`. crewmate counts an empty answer as a failure and continues the conversation once with "use your file tools". In a by-hand rerun, that recovered a real answer. *(Release check in Claude Code.)*
 - **agy's permission report can't be trusted alone.** An allow-rule in my agy settings let it write a file while still reporting `request-review`. Read-only Gemini jobs now refuse to start when your user-level agy settings allow more than reading. *(Final code review.)*
-- **Live progress can be too live.** Claude Code's Monitor tool turns each output line into a message, so a critique of a long design doc woke Claude **57** times. `watch --brief` sends the start, errors, one summary a minute and the end; the next critique took **7** turns. *(Real Claude Code session.)*
+- **Live progress can be too live.** Claude Code's Monitor tool turns each output line into a message, so a critique of a long design doc woke Claude about **55** times. `watch --brief` sends the start, errors, one summary a minute and the end; the next critique took **7** turns. *(Real Claude Code session.)*
 - **"Did not respond" was wrong for deep thinkers.** Codex at high effort can go past 45 seconds before its first visible step, which tripped my 45-second check. Its first event now counts. *(Final code review.)*
 
 ## What I learned
