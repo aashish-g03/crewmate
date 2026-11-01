@@ -402,3 +402,11 @@ test('FR-I4: releaseWriter waits for the lock mutex', async () => {
   assert.ok(Number(out) >= 250, `released after ${out} ms while the mutex was held`);
   assert.equal(fs.existsSync(path.join(w.stateDir, 'writer.lock')), false);
 });
+
+test('gemini signed out (recorded agy 1.4.12): fails fast with the sign-in hint, not "status ERROR"', async () => {
+  const { w, id } = startJob('gemini', { env: { FAKE_FIXTURE: fixture('agy-signed-out.ndjson'), FAKE_EXIT: '1', FAKE_STDERR: 'error: authentication failed or timed out' } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'failed');
+  assert.match(j.reason, /authentication failed or timed out/);
+  assert.match(j.reason, /run `agy` once to sign in/);
+});

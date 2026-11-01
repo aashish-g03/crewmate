@@ -84,7 +84,10 @@ export const geminiAdapter = {
           const r = o.result ?? {};
           out.answer = typeof r.response === 'string' ? r.response : '';
           out.deniedTools = (r.denied_actions ?? []).map((d) => String(d.display_name ?? d.action ?? 'unknown'));
-          if (r.status !== 'SUCCESS') out.vendorError = `agy status ${r.status ?? 'unknown'}`;
+          if (r.status !== 'SUCCESS') {
+            const msg = r.error ? `agy: ${r.error}` : `agy status ${r.status ?? 'unknown'}`;
+            out.vendorError = /auth/i.test(String(r.error ?? '')) ? `${msg} — run \`agy\` once to sign in` : msg;
+          }
           if (r.finished_reason === 'print_timeout') out.timedOut = true;
           if (r.usage) {
             out.usage = { input: r.usage.input_tokens ?? 0, output: r.usage.output_tokens ?? 0 };
