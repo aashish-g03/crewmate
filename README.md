@@ -134,19 +134,6 @@ Job state is in `~/.crewmate/workspaces/<folder>-<hash>/jobs/<id>/`: `job.json`,
 
 </details>
 
-<details>
-<summary><strong>Upgrading from v0.2</strong></summary>
-
-v1 replaces the mailbox, worker pool, MCP server and subagent. Remove the old pieces:
-
-```bash
-claude mcp remove crewmate
-rm ~/.claude/agents/crewmate.md
-rm -rf ~/.crewmate/gemini-worker ~/.crewmate/kimi-worker ~/.crewmate/codex-worker ~/.crewmate/log.jsonl
-```
-
-</details>
-
 ## Tested against the real thing
 
 - `npm test`: failure-mode tests driven by **recorded real CLI output**: denials, empty answers, signed-out agy, timeouts, races, pid reuse.
