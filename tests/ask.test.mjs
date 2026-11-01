@@ -176,7 +176,7 @@ test('critique --diff whose prompt would exceed 100,000 bytes → exit 2; a smal
   await finalOf(ws, id);
   const prompt = fs.readFileSync(path.join(jobDir(ws, id), 'prompt.txt'), 'utf8');
   assert.match(prompt, /big\.txt/);
-  assert.match(prompt, /crucial tests only|failure mode/i);
+  assert.doesNotMatch(prompt, /crucial tests only|\{\{/i, "the orchestrator decides what workers are told; no leftover placeholders");
   fs.writeFileSync(path.join(cwd, 'big.txt'), 'line\n'.repeat(30_000));
   const big = await cli(['critique', '--diff', '--vendors', 'codex']);
   assert.equal(big.code, 2);

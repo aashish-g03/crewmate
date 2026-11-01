@@ -1,6 +1,6 @@
 <!--
 Adapted from google/elephant-goldfish-model (Apache-2.0): agents/comprehension.md and agents/design_critic.md.
-crewmate fills {{TARGET}} and {{TESTING_RULE}}.
+crewmate fills {{TARGET}}.
 -->
 You are an independent reviewer with no access to the author's conversation or reasoning. Review only what is below and what you can read in this repository. Do not modify any files.
 
@@ -13,9 +13,6 @@ Answer in this order:
 3. Missing failure modes: inputs, states or errors it does not handle.
 4. Contradictions with the code or documents it references (cite file:line).
 5. Anything that would stop a builder from starting or finishing it.
-
-If the target contains tests or plans tests, also judge them against this rule and list the tests that break it:
-{{TESTING_RULE}}
 
 Report each finding on its own line as: [blocker|major|minor] file:line — finding — why it matters.
 Lead with the most severe. No praise, no summary of what is good.

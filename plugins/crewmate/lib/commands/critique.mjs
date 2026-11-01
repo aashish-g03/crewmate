@@ -9,13 +9,11 @@ import { resolveWorkspace } from '../workspace.mjs';
 import { extractOptionalValues, launchJob, vendorMissing, MAX_PROMPT_BYTES } from './ask.mjs';
 
 const TEMPLATE = new URL('../critique-template.md', import.meta.url);
-const TESTING_RULE = new URL('../testing-rule.md', import.meta.url);
 
 /** @param {string} target */
 export function buildCritiquePrompt(target) {
   const tpl = fs.readFileSync(TEMPLATE, 'utf8').replace(/^<!--[\s\S]*?-->\n/, '');
-  // Fill the testing rule first: a diff of the template itself may contain the literal {{TESTING_RULE}}.
-  return tpl.replace('{{TESTING_RULE}}', () => fs.readFileSync(TESTING_RULE, 'utf8').trim()).replace('{{TARGET}}', () => target);
+  return tpl.replace('{{TARGET}}', () => target);
 }
 
 /** @param {string[]} argv @param {any} io */

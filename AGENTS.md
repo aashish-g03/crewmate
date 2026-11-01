@@ -7,7 +7,6 @@ crewmate v1 is a Claude Code plugin around one zero-dependency Node.js CLI. Desi
 - `plugins/crewmate/bin/crewmate`: entry point. Each command is `plugins/crewmate/lib/commands/<name>.mjs` exporting `run(argv, io) → exit code`; the detached runner (`_run`) is `lib/runner.mjs`.
 - `plugins/crewmate/lib/vendors/`: one adapter per vendor (`codex.mjs` → `codex exec --json`, `gemini.mjs` → `agy -p --output-format stream-json`).
 - `plugins/crewmate/lib/vendored/`: copied from openai/codex-plugin-cc (Apache-2.0). Do not edit beyond the header line.
-- `plugins/crewmate/lib/testing-rule.md`: the testing rule carried into critique prompts and, through the skill, into delegated test work.
 - `plugins/crewmate/commands/`, `plugins/crewmate/skills/crewmate/`: the Claude Code layer. Always call `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate"`.
 
 ## Commands
@@ -20,5 +19,11 @@ crewmate v1 is a Claude Code plugin around one zero-dependency Node.js CLI. Desi
 
 ## Rules
 - No runtime dependencies: only `node:` built-ins and relative imports in `plugins/crewmate/`.
-- Tests follow the testing rule in `plugins/crewmate/lib/testing-rule.md`: one test per failure mode, real recordings or real CLIs, no tests that restate the code.
+- Tests for crewmate itself follow this rule (it applies to building crewmate, not to the workers crewmate starts; the orchestrating agent decides what workers are told):
+  Testing rule ("crucial tests only"): tests must catch real bugs, not restate the code.
+  - No unit tests written after the code just to cover it; a test that mirrors the implementation catches nothing.
+  - Prefer end-to-end tests that drive the real thing (real CLI, real browser, real files, a recorded real fixture) and leave a checkable artifact (an output file, a log, a report, a screenshot).
+  - Before testing a part in isolation, list the ways it can fail (edge inputs, real-world data, past bugs); write one test per failure mode and skip the rest.
+  - Keep a test only if it catches a bug the end-to-end tests miss; delete tests that break on a refactor while behaviour stayed right.
+  - Before claiming something works, run the real flow and show its output; passing tests on mocks do not count.
 - No Co-Authored-By or AI attribution trailers in commits.
