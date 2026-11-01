@@ -1,10 +1,24 @@
 # Changelog
 
 All notable changes to crewmate will be documented here. Format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
-[SemVer](https://semver.org/) once we tag the first release.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.2.0] — Persistent worker contexts (v1.1) — pending merge
+## [1.0.0] — 2026-11-01
+
+A rewrite. crewmate is now a Claude Code plugin around one zero-dependency Node.js CLI.
+
+### Added
+- Two-command install: `/plugin marketplace add aashish-g03/crewmate`, `/plugin install crewmate@crewmate`.
+- Detached jobs for Codex (`codex exec --json`) and Gemini (`agy -p --output-format stream-json`) that survive the Claude session.
+- Live progress: `crewmate watch` streams tool steps, merged and throttled for Claude Code's Monitor.
+- Explicit final states (`done`, `failed`, `timeout`, `canceled`) with denied tools and tool errors listed.
+- `critique`: zero-context review of files or a diff by every ready vendor (EGM-style goldfish review).
+- `--resume`, `--write` / `--yolo` permission steps, one writer per workspace, `setup` readiness checks.
+
+### Removed
+- The filesystem mailbox, worker pool (`crewmate up`), MCP server, Bash subagent, ACP transport, Bun runtime and Kimi worker.
+
+## [0.2.0] — Persistent worker contexts (v1.1)
 
 > Strictly additive over v0.1.0. Every existing CLI invocation and every
 > existing MCP tool call produces byte-identical results to v0.1.0 when no

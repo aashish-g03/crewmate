@@ -1,0 +1,6 @@
+{
+  "name": "crewmate",
+  "version": "1.0.0",
+  "description": "Hand work from Claude Code to Codex and Gemini: background jobs, live progress, and independent critique.",
+  "author": { "name": "Aashish Gupta" }
+}
