@@ -327,3 +327,17 @@ test('FR-M3: watch --brief prints a still-running line per interval even with no
   assert.equal(r.code, 0, r.stdout);
   assert.match(r.stdout, /still running/);
 });
+
+test('watch prints a multi-line vendor note as one line', async () => {
+  const { cli, ws } = setup();
+  const job = createJob(ws, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: {} });
+  const dir = jobDir(ws, job.id);
+  appendEvent(dir, { n: 1, type: 'started', vendor: 'codex', model: null });
+  appendEvent(dir, { n: 2, type: 'note', text: 'first line\n\n[major] calc.js:4 — second' });
+  appendEvent(dir, { n: 3, type: 'end', state: 'done', reason: null, outcome: null });
+  writeJob(ws, { ...job, state: 'done', endedAt: new Date().toISOString() });
+  const w = await cli(['watch', job.id]);
+  const lines = w.stdout.trim().split('\n');
+  assert.equal(lines.length, 3, w.stdout);
+  assert.match(lines[1], /… first line \[major\] calc\.js:4 — second$/);
+});

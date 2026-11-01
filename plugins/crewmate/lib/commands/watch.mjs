@@ -14,6 +14,9 @@ const EXIT = { done: 0, failed: 1, timeout: 4, canceled: 5 };
 const RANK = { failed: 3, timeout: 2, canceled: 1, done: 0 };
 const FINAL = ['done', 'failed', 'timeout', 'canceled'];
 
+/** One event, one line: collapse vendor line breaks and runs of whitespace. @param {any} s */
+const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+
 /** @param {any} job @param {string} state */
 function endLine(job, state, reason, n) {
   const started = Date.parse(job.startedAt ?? job.createdAt);
@@ -59,7 +62,7 @@ function makeBriefFormatter(label, write, everyMs) {
         if (ev.phase === 'error') out(ev.n, `✗ ${last}`);
         return;
       }
-      if (ev.type === 'note' && /^(error:|continuing)/.test(String(ev.text))) out(ev.n, `… ${ev.text}`);
+      if (ev.type === 'note' && /^(error:|continuing)/.test(String(ev.text))) out(ev.n, `… ${oneLine(ev.text)}`);
     },
   };
 }
@@ -116,7 +119,7 @@ function makeFormatter(label, write) {
         }
         flush();
         lastNoteAt = now;
-        out(ev.n, `… ${ev.text}`);
+        out(ev.n, `… ${oneLine(ev.text)}`);
         return;
       }
       if (ev.type === 'started') {

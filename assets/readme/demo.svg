@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="462" viewBox="0 0 900 462" role="img" aria-label="crewmate running a real Codex job and a Codex + Gemini critique, with live progress">
+<style>
+text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;white-space:pre}
+.p{fill:#7ee0d0}.c{fill:#e6edf3;font-weight:600}.d{fill:#8b949e}
+.cx{fill:#3fd0a0;font-weight:700}.gm{fill:#7aa7ff;font-weight:700}
+.ok{fill:#3fd0a0}.run{fill:#c9d1d9}.err{fill:#ff7b72}.end{fill:#e6edf3;font-weight:700}.note{fill:#d2a8ff}
+@keyframes l0{0%,2.22%{opacity:0}2.23%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l0{animation:l0 27.0s linear infinite}
+@keyframes l1{0%,6.00%{opacity:0}6.01%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l1{animation:l1 27.0s linear infinite}
+@keyframes l2{0%,6.97%{opacity:0}6.98%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l2{animation:l2 27.0s linear infinite}
+@keyframes l3{0%,10.30%{opacity:0}10.31%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l3{animation:l3 27.0s linear infinite}
+@keyframes l4{0%,13.18%{opacity:0}13.19%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l4{animation:l4 27.0s linear infinite}
+@keyframes l5{0%,16.51%{opacity:0}16.52%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l5{animation:l5 27.0s linear infinite}
+@keyframes l6{0%,17.47%{opacity:0}17.48%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l6{animation:l6 27.0s linear infinite}
+@keyframes l7{0%,20.80%{opacity:0}20.81%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l7{animation:l7 27.0s linear infinite}
+@keyframes l8{0%,23.67%{opacity:0}23.68%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l8{animation:l8 27.0s linear infinite}
+@keyframes l9{0%,27.00%{opacity:0}27.01%,33.66%{opacity:1}33.67%,100%{opacity:0}}#l9{animation:l9 27.0s linear infinite}
+@keyframes l10{0%,33.67%{opacity:0}33.68%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l10{animation:l10 27.0s linear infinite}
+@keyframes l11{0%,37.45%{opacity:0}37.46%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l11{animation:l11 27.0s linear infinite}
+@keyframes l12{0%,37.89%{opacity:0}37.90%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l12{animation:l12 27.0s linear infinite}
+@keyframes l13{0%,41.23%{opacity:0}41.24%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l13{animation:l13 27.0s linear infinite}
+@keyframes l14{0%,44.56%{opacity:0}44.57%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l14{animation:l14 27.0s linear infinite}
+@keyframes l15{0%,47.89%{opacity:0}47.90%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l15{animation:l15 27.0s linear infinite}
+@keyframes l16{0%,49.86%{opacity:0}49.87%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l16{animation:l16 27.0s linear infinite}
+@keyframes l17{0%,53.19%{opacity:0}53.20%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l17{animation:l17 27.0s linear infinite}
+@keyframes l18{0%,56.53%{opacity:0}56.54%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l18{animation:l18 27.0s linear infinite}
+@keyframes l19{0%,59.86%{opacity:0}59.87%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l19{animation:l19 27.0s linear infinite}
+@keyframes l20{0%,63.19%{opacity:0}63.20%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l20{animation:l20 27.0s linear infinite}
+@keyframes l21{0%,63.64%{opacity:0}63.65%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l21{animation:l21 27.0s linear infinite}
+@keyframes l22{0%,66.97%{opacity:0}66.98%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l22{animation:l22 27.0s linear infinite}
+@keyframes l23{0%,67.42%{opacity:0}67.43%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l23{animation:l23 27.0s linear infinite}
+@keyframes l24{0%,70.75%{opacity:0}70.76%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l24{animation:l24 27.0s linear infinite}
+@keyframes l25{0%,71.20%{opacity:0}71.21%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l25{animation:l25 27.0s linear infinite}
+@keyframes l26{0%,74.53%{opacity:0}74.54%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l26{animation:l26 27.0s linear infinite}
+@keyframes l27{0%,77.86%{opacity:0}77.87%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l27{animation:l27 27.0s linear infinite}
+@keyframes l28{0%,81.20%{opacity:0}81.21%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l28{animation:l28 27.0s linear infinite}
+@keyframes l29{0%,84.07%{opacity:0}84.08%,98.52%{opacity:1}98.53%,100%{opacity:0}}#l29{animation:l29 27.0s linear infinite}
+</style>
+<rect width="900" height="462" rx="12" fill="#0d1117"/>
+<rect width="900" height="36" rx="12" fill="#161b22"/><rect y="24" width="900" height="12" fill="#161b22"/>
+<circle cx="22" cy="18" r="6" fill="#ff5f57"/><circle cx="42" cy="18" r="6" fill="#febc2e"/><circle cx="62" cy="18" r="6" fill="#28c840"/>
+<text x="450" y="23" text-anchor="middle" class="d">claude code · crewmate (real output, waits shortened)</text>
+<text id="l0" x="20" y="64" opacity="0"><tspan class="p">&gt; </tspan><tspan class="c">/crewmate:ask codex Is sumTo in calc.js correct? Answer in two sentences.</tspan></text>
+<text id="l1" x="20" y="83" opacity="0"><tspan class="d">codex-mvxoavn3-odl2</tspan></text>
+<text id="l2" x="20" y="102" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#1</tspan> <tspan class="ok">● started</tspan></text>
+<text id="l3" x="20" y="121" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#2</tspan> <tspan class="note">… I’ll check `sumTo` in `calc.js` and any relevant tests.</tspan></text>
+<text id="l4" x="20" y="140" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#3</tspan> <tspan class="run">▶ shell /bin/zsh -lc "pwd &amp;&amp; rg --files -g 'AGENTS.md' -g 'calc.js' -g '*calc*' -g '*t…</tspan></text>
+<text id="l5" x="20" y="159" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#4</tspan> <tspan class="ok">✓ shell</tspan></text>
+<text id="l6" x="20" y="178" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#5</tspan> <tspan class="run">▶ shell /bin/zsh -lc 'cat calc.js'</tspan></text>
+<text id="l7" x="20" y="197" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#6</tspan> <tspan class="ok">✓ shell</tspan></text>
+<text id="l8" x="20" y="216" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#7</tspan> <tspan class="note">… No, `sumTo` in `calc.js` sums 1 through `n - 1` because the loop uses `i &lt; n`, exclu…</tspan></text>
+<text id="l9" x="20" y="235" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#9</tspan> <tspan class="end">■ done in 15s; 44101 in / 168 out tokens</tspan></text>
+<text id="l10" x="20" y="64" opacity="0"><tspan class="p">&gt; </tspan><tspan class="c">/crewmate:critique --diff        # Codex and Gemini review the change, in parallel</tspan></text>
+<text id="l11" x="20" y="83" opacity="0"><tspan class="cx">codex:luub</tspan> <tspan class="d">#1</tspan> <tspan class="ok">● started</tspan></text>
+<text id="l12" x="20" y="102" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#1</tspan> <tspan class="ok">● started</tspan></text>
+<text id="l13" x="20" y="121" opacity="0"><tspan class="cx">codex:luub</tspan> <tspan class="d">#2</tspan> <tspan class="note">… I’ll read the code and repository context, then check the added TODO for gaps a…</tspan></text>
+<text id="l14" x="20" y="140" opacity="0"><tspan class="cx">codex:luub</tspan> <tspan class="d">#3</tspan> <tspan class="run">▶ shell /bin/zsh -lc "pwd; rg --files -g 'AGENTS.md' -g '"'!node_modules'"' -g '"…</tspan></text>
+<text id="l15" x="20" y="159" opacity="0"><tspan class="cx">codex:luub</tspan> <tspan class="d">#4</tspan> <tspan class="ok">✓ shell</tspan></text>
+<text id="l16" x="20" y="178" opacity="0"><tspan class="cx">codex:luub</tspan> <tspan class="d">#5</tspan> <tspan class="run">▶ shell /bin/zsh -lc "rg --files --hidden -g '"'!.git'"'; ls -la"</tspan></text>
+<text id="l17" x="20" y="197" opacity="0"><tspan class="cx">codex:luub</tspan> <tspan class="d">#6</tspan> <tspan class="ok">✓ shell</tspan></text>
+<text id="l18" x="20" y="216" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#2</tspan> <tspan class="run">▶ read_file calc.js</tspan></text>
+<text id="l19" x="20" y="235" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#3</tspan> <tspan class="ok">✓ read_file</tspan></text>
+<text id="l20" x="20" y="254" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#4</tspan> <tspan class="run">▶ read_file package.json</tspan></text>
+<text id="l21" x="20" y="273" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#5</tspan> <tspan class="err">✗ read_file package.json</tspan></text>
+<text id="l22" x="20" y="292" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#6</tspan> <tspan class="run">▶ read_file README.md</tspan></text>
+<text id="l23" x="20" y="311" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#7</tspan> <tspan class="err">✗ read_file README.md</tspan></text>
+<text id="l24" x="20" y="330" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#8</tspan> <tspan class="run">▶ read_file calc.test.js</tspan></text>
+<text id="l25" x="20" y="349" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#9</tspan> <tspan class="err">✗ read_file calc.test.js</tspan></text>
+<text id="l26" x="20" y="368" opacity="0"><tspan class="cx">codex:luub</tspan> <tspan class="d">#7</tspan> <tspan class="note">… The change adds a TODO to address negative inputs to `sumTo(n)`. It changes no …</tspan></text>
+<text id="l27" x="20" y="387" opacity="0"><tspan class="cx">codex:luub</tspan> <tspan class="d">#9</tspan> <tspan class="end">■ done in 35s; 46016 in / 759 out tokens</tspan></text>
+<text id="l28" x="20" y="406" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#10</tspan> <tspan class="note">… ### 1. Restate What the Change Is Trying to Do</tspan></text>
+<text id="l29" x="20" y="425" opacity="0"><tspan class="gm">gemini:k5e5</tspan> <tspan class="d">#12</tspan> <tspan class="end">■ done in 103s; 44460 in / 10637 out tokens; tool errors: 3</tspan></text>
+</svg>
