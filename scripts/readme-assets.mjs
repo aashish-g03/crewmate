@@ -8,9 +8,20 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REC = path.join(ROOT, 'assets/readme/recordings');
-const OUT = path.join(ROOT, 'assets/readme/demo.svg');
+// Presets: `readme` (900 px, 13 px text, both scenes) and dev.to-sized single scenes
+// (800 px canvas, 17 px text, about 62 columns; see the publishing-to-devto visuals guide).
+const PRESETS = {
+  readme: { out: 'assets/readme/demo.svg', width: 900, font: 13, cols: 96, scenes: ['ask', 'critique'] },
+  'launch-ask': { out: 'assets/launch/ask.svg', width: 800, font: 17, cols: 62, scenes: ['ask'] },
+  'launch-critique': { out: 'assets/launch/critique-brief.svg', width: 800, font: 17, cols: 62, scenes: ['critique-brief'] },
+};
+const presetName = process.argv[process.argv.indexOf('--preset') + 1] && process.argv.includes('--preset') ? process.argv[process.argv.indexOf('--preset') + 1] : 'readme';
+const PRESET = PRESETS[presetName];
+if (!PRESET) throw new Error(`unknown preset ${presetName}`);
+const OUT = path.join(ROOT, PRESET.out);
+fs.mkdirSync(path.dirname(OUT), { recursive: true });
 
-const MAX_COLS = 96;
+const MAX_COLS = PRESET.cols;
 const clean = (s) =>
   s
     .replace(/\/Users\/[^ "')]*\/(repo|demo)\//g, '')
@@ -26,10 +37,13 @@ function load(name) {
 }
 
 // Scene 1: ask codex (foreground). Scene 2: critique --diff, watched.
-const scenes = [
-  { cmd: '/crewmate:ask codex Is sumTo in calc.js correct? Answer in two sentences.', lines: load('ask-codex.json') },
-  { cmd: '/crewmate:critique --diff        # Codex and Gemini review the change, in parallel', lines: load('critique-watch.json').filter((l) => !/^\[|^###|^The change adds/.test(l.text)) },
-];
+const SCENES = {
+  ask: () => ({ cmd: '/crewmate:ask codex Is sumTo in calc.js correct? Answer in two sentences.', lines: load('ask-codex.json') }),
+  critique: () => ({ cmd: '/crewmate:critique --diff        # Codex and Gemini review the change, in parallel', lines: load('critique-watch.json').filter((l) => !/^\[|^###|^The change adds/.test(l.text)) }),
+  'critique-brief': () => ({ cmd: '/crewmate:critique --diff   # watched with --brief', lines: load('critique-brief.json') }),
+};
+const scenes = PRESET.scenes.map((k) => SCENES[k]());
+if (presetName !== 'readme') for (const sc of scenes) sc.cmd = clip(sc.cmd);
 
 // Compress time: a gap between lines becomes min(gap, 900 ms), at least 120 ms.
 const rows = [];
@@ -59,10 +73,11 @@ function colorize(text, kind) {
   return `<tspan class="${v}">${esc(who)}</tspan> <tspan class="d">${n}</tspan> <tspan class="${g}">${esc(glyph)}${esc(rest)}</tspan>`;
 }
 
-const LINE_H = 19;
+const LINE_H = Math.round(PRESET.font * 1.5);
 const VISIBLE = Math.max(...scenes.map((sc) => sc.lines.length + 1));
-const W = 900;
-const H = 64 + VISIBLE * LINE_H + 18;
+const W = PRESET.width;
+const TOP = 36 + LINE_H + 10;
+const H = TOP + VISIBLE * LINE_H + 18;
 // Each screen shows a scene; rows scroll by restarting per scene.
 let y0 = 0;
 const parts = [];
@@ -74,7 +89,7 @@ for (const r of rows) {
     sceneStart = r.at;
   }
   if (r.kind === 'gap') continue;
-  const y = 64 + lineInScene * LINE_H;
+  const y = TOP + lineInScene * LINE_H;
   lineInScene++;
   if (lineInScene > VISIBLE) continue;
   const showAt = (r.at / cycle) * 100;
@@ -91,7 +106,7 @@ const keyframes = parts
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="crewmate running a real Codex job and a Codex + Gemini critique, with live progress">
 <style>
-text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;white-space:pre}
+text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:${PRESET.font}px;white-space:pre}
 .p{fill:#7ee0d0}.c{fill:#e6edf3;font-weight:600}.d{fill:#8b949e}
 .cx{fill:#3fd0a0;font-weight:700}.gm{fill:#7aa7ff;font-weight:700}
 .ok{fill:#3fd0a0}.run{fill:#c9d1d9}.err{fill:#ff7b72}.end{fill:#e6edf3;font-weight:700}.note{fill:#d2a8ff}
@@ -100,7 +115,7 @@ ${keyframes}
 <rect width="${W}" height="${H}" rx="12" fill="#0d1117"/>
 <rect width="${W}" height="36" rx="12" fill="#161b22"/><rect y="24" width="${W}" height="12" fill="#161b22"/>
 <circle cx="22" cy="18" r="6" fill="#ff5f57"/><circle cx="42" cy="18" r="6" fill="#febc2e"/><circle cx="62" cy="18" r="6" fill="#28c840"/>
-<text x="${W / 2}" y="23" text-anchor="middle" class="d">claude code · crewmate (real output, waits shortened)</text>
+<text x="${W / 2}" y="23" text-anchor="middle" class="d" style="font-size:${Math.min(13, PRESET.font)}px">claude code · crewmate (real output, waits shortened)</text>
 ${parts.map((p) => `<text id="${p.id}" x="20" y="${p.y}" opacity="0">${p.html}</text>`).join('\n')}
 </svg>
 `;

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="350" viewBox="0 0 800 350" role="img" aria-label="crewmate running a real Codex job and a Codex + Gemini critique, with live progress">
+<style>
+text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:17px;white-space:pre}
+.p{fill:#7ee0d0}.c{fill:#e6edf3;font-weight:600}.d{fill:#8b949e}
+.cx{fill:#3fd0a0;font-weight:700}.gm{fill:#7aa7ff;font-weight:700}
+.ok{fill:#3fd0a0}.run{fill:#c9d1d9}.err{fill:#ff7b72}.end{fill:#e6edf3;font-weight:700}.note{fill:#d2a8ff}
+@keyframes l0{0%,5.18%{opacity:0}5.19%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l0{animation:l0 11.6s linear infinite}
+@keyframes l1{0%,13.98%{opacity:0}13.99%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l1{animation:l1 11.6s linear infinite}
+@keyframes l2{0%,16.23%{opacity:0}16.24%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l2{animation:l2 11.6s linear infinite}
+@keyframes l3{0%,24.00%{opacity:0}24.01%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l3{animation:l3 11.6s linear infinite}
+@keyframes l4{0%,30.70%{opacity:0}30.71%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l4{animation:l4 11.6s linear infinite}
+@keyframes l5{0%,38.46%{opacity:0}38.47%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l5{animation:l5 11.6s linear infinite}
+@keyframes l6{0%,40.69%{opacity:0}40.70%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l6{animation:l6 11.6s linear infinite}
+@keyframes l7{0%,48.46%{opacity:0}48.47%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l7{animation:l7 11.6s linear infinite}
+@keyframes l8{0%,55.13%{opacity:0}55.14%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l8{animation:l8 11.6s linear infinite}
+@keyframes l9{0%,62.89%{opacity:0}62.90%,96.55%{opacity:1}96.56%,100%{opacity:0}}#l9{animation:l9 11.6s linear infinite}
+</style>
+<rect width="800" height="350" rx="12" fill="#0d1117"/>
+<rect width="800" height="36" rx="12" fill="#161b22"/><rect y="24" width="800" height="12" fill="#161b22"/>
+<circle cx="22" cy="18" r="6" fill="#ff5f57"/><circle cx="42" cy="18" r="6" fill="#febc2e"/><circle cx="62" cy="18" r="6" fill="#28c840"/>
+<text x="400" y="23" text-anchor="middle" class="d" style="font-size:13px">claude code · crewmate (real output, waits shortened)</text>
+<text id="l0" x="20" y="72" opacity="0"><tspan class="p">&gt; </tspan><tspan class="c">/crewmate:ask codex Is sumTo in calc.js correct? Answer in tw…</tspan></text>
+<text id="l1" x="20" y="98" opacity="0"><tspan class="d">codex-mvxoavn3-odl2</tspan></text>
+<text id="l2" x="20" y="124" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#1</tspan> <tspan class="ok">● started</tspan></text>
+<text id="l3" x="20" y="150" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#2</tspan> <tspan class="note">… I’ll check `sumTo` in `calc.js` and any relevant t…</tspan></text>
+<text id="l4" x="20" y="176" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#3</tspan> <tspan class="run">▶ shell /bin/zsh -lc "pwd &amp;&amp; rg --files -g 'AGENTS.m…</tspan></text>
+<text id="l5" x="20" y="202" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#4</tspan> <tspan class="ok">✓ shell</tspan></text>
+<text id="l6" x="20" y="228" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#5</tspan> <tspan class="run">▶ shell /bin/zsh -lc 'cat calc.js'</tspan></text>
+<text id="l7" x="20" y="254" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#6</tspan> <tspan class="ok">✓ shell</tspan></text>
+<text id="l8" x="20" y="280" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#7</tspan> <tspan class="note">… No, `sumTo` in `calc.js` sums 1 through `n - 1` be…</tspan></text>
+<text id="l9" x="20" y="306" opacity="0"><tspan class="cx">codex</tspan> <tspan class="d">#9</tspan> <tspan class="end">■ done in 15s; 44101 in / 168 out tokens</tspan></text>
+</svg>

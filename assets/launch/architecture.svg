@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400" viewBox="0 0 800 400">
+  <style>
+    .b{font:700 18px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#e6edf3}
+    .s{font:500 15px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#8b949e}
+    .l{font:500 14px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#c9d1d9}
+    .box{fill:#161b22;stroke-width:2}
+    .arr{stroke-width:2;fill:none}
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8b949e"/></marker>
+  </defs>
+  <rect width="800" height="400" rx="16" fill="#0d1117"/>
+  <!-- Claude -->
+  <rect x="24" y="150" width="170" height="80" rx="12" class="box" stroke="#d9a6ff"/>
+  <text x="109" y="185" text-anchor="middle" class="b">Claude Code</text>
+  <text x="109" y="210" text-anchor="middle" class="s">orchestrator</text>
+  <!-- crewmate -->
+  <rect x="265" y="150" width="160" height="80" rx="12" class="box" stroke="#7ee0d0"/>
+  <text x="345" y="185" text-anchor="middle" class="b">crewmate</text>
+  <text x="345" y="210" text-anchor="middle" class="s">ask · critique</text>
+  <path d="M194 190H261" class="arr" stroke="#8b949e" marker-end="url(#a)"/>
+  <!-- runners -->
+  <rect x="500" y="40" width="270" height="80" rx="12" class="box" stroke="#3fd0a0"/>
+  <text x="635" y="75" text-anchor="middle" class="b">runner → Codex</text>
+  <text x="635" y="100" text-anchor="middle" class="s">codex exec --json</text>
+  <rect x="500" y="150" width="270" height="80" rx="12" class="box" stroke="#7aa7ff"/>
+  <text x="635" y="185" text-anchor="middle" class="b">runner → Gemini</text>
+  <text x="635" y="210" text-anchor="middle" class="s">agy stream-json</text>
+  <path d="M425 180C460 180 462 82 496 82" class="arr" stroke="#3fd0a0" marker-end="url(#a)"/>
+  <path d="M425 190H496" class="arr" stroke="#7aa7ff" marker-end="url(#a)"/>
+  <text x="345" y="258" text-anchor="middle" class="l">starts detached runners</text>
+  <!-- state -->
+  <rect x="265" y="290" width="505" height="80" rx="12" class="box" stroke="#30363d"/>
+  <text x="517" y="325" text-anchor="middle" class="b">~/.crewmate/…/jobs/&lt;id&gt;/</text>
+  <text x="517" y="350" text-anchor="middle" class="s">job.json · events.ndjson · result.md</text>
+  <path d="M635 230V286" class="arr" stroke="#8b949e" marker-end="url(#a)"/>
+  <path d="M770 80C796 80 796 330 774 330" class="arr" stroke="#8b949e" marker-end="url(#a)"/>
+  <!-- watch back -->
+  <path d="M261 330H130C109 330 109 300 109 234" class="arr" stroke="#d9a6ff" stroke-dasharray="6 6" marker-end="url(#a)"/>
+  <text x="128" y="290" class="l">watch --brief</text>
+  <text x="128" y="310" class="l">(Monitor)</text>
+</svg>

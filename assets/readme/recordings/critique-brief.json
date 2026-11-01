@@ -1,0 +1,51 @@
+{
+  "args": [
+    "watch",
+    "--brief",
+    "codex-mvxp0xgi-pzdz",
+    "gemini-mvxp0xgn-6qgm"
+  ],
+  "code": 0,
+  "lines": [
+    {
+      "t": 33,
+      "text": "codex:pzdz #1 ● started"
+    },
+    {
+      "t": 35,
+      "text": "gemini:6qgm #1 ● started"
+    },
+    {
+      "t": 10466,
+      "text": "codex:pzdz #6 ✗ shell /bin/zsh -lc \"nl -ba calc.js; rg --files --hidden -g AGENTS.md -g '\"'!'\"\\\\.git/…"
+    },
+    {
+      "t": 21666,
+      "text": "gemini:6qgm #5 ✗ read_file /Users/aashish/.claude/jobs/b7f8910c/tmp/demo/repo/package.json"
+    },
+    {
+      "t": 25053,
+      "text": "gemini:6qgm #7 ✗ read_file /Users/aashish/.claude/jobs/b7f8910c/tmp/demo/repo/README.md"
+    },
+    {
+      "t": 30252,
+      "text": "codex:pzdz #6 … 2 tool steps so far (30s), last: shell /bin/zsh -lc \"nl -ba calc.js; rg --files --hidden -g AGENTS.md -g '\"'!'\"\\\\.git/…"
+    },
+    {
+      "t": 30255,
+      "text": "gemini:6qgm #7 … 3 tool steps so far (30s), last: read_file /Users/aashish/.claude/jobs/b7f8910c/tmp/demo/repo/README.md"
+    },
+    {
+      "t": 33079,
+      "text": "codex:pzdz #9 ■ done in 33s; 45784 in / 763 out tokens; tool errors: 1"
+    },
+    {
+      "t": 60262,
+      "text": "gemini:6qgm #7 … still running (60s)"
+    },
+    {
+      "t": 75413,
+      "text": "gemini:6qgm #10 ■ done in 75s; 35110 in / 7169 out tokens; tool errors: 2"
+    }
+  ]
+}
