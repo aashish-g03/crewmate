@@ -1,6 +1,6 @@
 ---
 title: I gave Claude Code a crew. Codex and Gemini found a race in the plugin that runs them.
-published: false
+published: true
 description: crewmate is a Claude Code plugin that hands work to OpenAI Codex and Google Gemini as background jobs, streams every step into the conversation, and reports how each job ended, with the reason.
 tags: claudecode, ai, opensource, productivity
 cover_image: ../assets/launch/cover.png
