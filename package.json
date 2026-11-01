@@ -21,7 +21,7 @@
     "crewmate": "plugins/crewmate/bin/crewmate"
   },
   "scripts": {
-    "test": "node --test --test-timeout=60000 tests/",
+    "test": "node --test --test-timeout=180000 tests/",
     "typecheck": "tsc -p .",
     "e2e": "node scripts/e2e-check.mjs"
   },

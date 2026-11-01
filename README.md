@@ -20,6 +20,8 @@ codex #7 ■ done in 8s; 29180 in / 85 out tokens
 - **It is** a Claude Code plugin around one small Node.js program with no dependencies. Jobs run detached, survive the Claude session ending, and their answers stay readable later.
 - **It is** honest about outcomes: every job ends `done`, `failed`, `timeout` or `canceled`, and tools the vendor was denied are listed, never hidden.
 - **It is** read-only by default. `--write` lets a vendor edit files in the current folder; `--yolo` gives it full access. Claude only adds those when you ask.
+  - Codex `--write` may also run shell commands in the folder; Gemini `--write` may edit files but still cannot run shell commands.
+  - If your agy settings (`~/.gemini/antigravity-cli/settings.json`) allow write or shell tools, crewmate refuses read-only Gemini jobs instead of pretending they are read-only (agy would apply those rules anyway).
 - **It isn't** a model router or an API proxy: it drives the `codex` and `agy` CLIs you already have, with their own sign-in. No API keys.
 - **It isn't** a supervisor that opens PRs in git worktrees (see [firstmate](https://github.com/kunchenguid/firstmate) for that).
 
@@ -53,7 +55,7 @@ Claude can also use crewmate on its own: the bundled skill tells it when a secon
 
 ## Where things live
 
-Job state is in `~/.crewmate/workspaces/<folder>-<hash>/jobs/<id>/`: `job.json`, the event log, the prompt and the answer. **Prompts and answers can contain your code**; delete the folder to remove them. crewmate keeps the newest 50 finished jobs per workspace.
+Job state is in `~/.crewmate/workspaces/<folder>-<hash>/jobs/<id>/`: `job.json`, the event log, the prompt and the answer. **Prompts and answers can contain your code**: the folders are created user-only (`0700`); delete them to remove the data. crewmate keeps the newest 50 finished jobs per workspace.
 
 ## Upgrading from v0.2
 

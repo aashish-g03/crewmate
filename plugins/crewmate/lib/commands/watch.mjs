@@ -35,17 +35,19 @@ function makeBriefFormatter(label, write, everyMs) {
   let steps = 0;
   let lastSummarizedSteps = 0;
   let lastSummaryAt = Date.now();
+  const startedAt = Date.now();
   let last = '';
   let lastN = 0;
   const out = (n, text) => write(`${label} #${n} ${text}\n`);
   return {
     flush() {},
     tick(now) {
-      if (steps > lastSummarizedSteps && now - lastSummaryAt >= everyMs) {
-        out(lastN, `… ${steps} tool steps so far, last: ${last}`);
-        lastSummarizedSteps = steps;
-        lastSummaryAt = now;
-      }
+      if (now - lastSummaryAt < everyMs) return;
+      const secs = Math.round((now - startedAt) / 1000);
+      if (steps > lastSummarizedSteps) out(lastN, `… ${steps} tool steps so far (${secs}s), last: ${last}`);
+      else out(lastN, `… still running (${secs}s)`); // a tool-less job must not look hung
+      lastSummarizedSteps = steps;
+      lastSummaryAt = now;
     },
     event(ev, now) {
       lastN = ev.n;

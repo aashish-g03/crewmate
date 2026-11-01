@@ -149,7 +149,7 @@ All commands accept `--json`. Exit codes:
 
 | Command | What it does |
 |---|---|
-| `crewmate ask <vendor> [prompt]` | Starts one job, then watches it inline unless `--detach`. Flags: `--detach`, `--resume [job-id]`, `--model <id>`, `--effort <level>`, `--write`, `--yolo`, `--timeout <duration>` (default 10m), `--prompt-file <path>`. The prompt can also come on stdin. |
+| `crewmate ask <vendor> [prompt]` | Starts one job, then watches it inline unless `--detach`. Flags: `--detach`, `--resume`, `--resume=<job-id>` (or `--resume <job-id>` when the id names an existing job), `--brief`, `--model <id>`, `--effort <level>`, `--write`, `--yolo`, `--timeout <duration>` (default 10m), `--prompt-file <path>`. The prompt can also come on stdin. |
 | `crewmate critique <path…>` | Starts one read-only job per ready vendor with the critique prompt (4.7). Flags: `--diff [ref]` (review `git diff` of the working tree, or against `ref`, instead of files), `--vendors <list>`. Prints the job ids and returns. |
 | `crewmate watch <id…>` | Prints events for the given jobs, replaying those already written, and exits when every job has a final state. Exit code: the worst final state among the jobs (failed over timeout over canceled over done). |
 | `crewmate status [id]` | Lists recent jobs in this workspace (id, vendor, state, age, summary), or one job in full. |

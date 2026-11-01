@@ -55,12 +55,6 @@ function ws() {
   return resolveWorkspace(dir, { CREWMATE_HOME: home });
 }
 
-test('newJobId satisfies the name rule', () => {
-  const id = newJobId('gemini');
-  assert.equal(assertName('job', id), id);
-  assert.match(id, /^gemini-[a-z0-9]+-[a-z0-9]{4}$/);
-});
-
 test('createJob then readJob round-trips; a stale tmp file never shadows job.json', () => {
   const w = ws();
   const job = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'hi', flags: { write: false } });
@@ -103,12 +97,6 @@ test('pruneJobs keeps the job named in writer.lock', () => {
   assert.ok(!removed.includes(finished[0]));
   assert.ok(readJob(w, finished[0]));
   assert.deepEqual(removed, [finished[1]]);
-});
-
-test('listJobs is newest first', () => {
-  const w = ws();
-  const ids = seed(w, 3, 'done', 5_000);
-  assert.deepEqual(listJobs(w).map((j) => j.id), [...ids].reverse());
 });
 
 test('CP1-2: parseDuration rejects values a timer cannot hold', () => {

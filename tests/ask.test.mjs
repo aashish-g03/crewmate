@@ -182,3 +182,21 @@ test('critique --diff whose prompt would exceed 100,000 bytes → exit 2; a smal
   assert.equal(big.code, 2);
   assert.match(big.stderr, /too large/);
 });
+
+test('FR-I2: --resume <id> (space form) takes the id, keeps the heredoc prompt and resumes that job', async () => {
+  const { cli, ws, cwd } = setup();
+  const first = idOf(await cli(['ask', 'codex', '--detach', 'first'], { env: { FAKE_FIXTURE: fx('codex.ndjson') } }));
+  await finalOf(ws, first);
+  const log = path.join(cwd, 'argv.log');
+  const r = await cli(['ask', 'codex', '--detach', '--resume', first], { input: 'the follow-up', env: { FAKE_FIXTURE: fx('codex.ndjson'), FAKE_ARGV_LOG: log } });
+  assert.equal(r.code, 0, r.stderr);
+  await finalOf(ws, idOf(r));
+  assert.equal(fs.readFileSync(path.join(jobDir(ws, idOf(r)), 'prompt.txt'), 'utf8'), 'the follow-up');
+  assert.ok(JSON.parse(fs.readFileSync(log, 'utf8').trim()).includes('01a193d0-87dd-7341-9392-cbf04ee3bb21'));
+});
+
+test('FR-M1: --model and --effort values that look like flags or quoting are rejected', async () => {
+  const { cli } = setup();
+  assert.equal((await cli(['ask', 'codex', '--model', '-o', 'x'])).code, 2);
+  assert.equal((await cli(['ask', 'codex', '--effort', 'high" x="y', 'x'])).code, 2);
+});

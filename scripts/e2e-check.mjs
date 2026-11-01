@@ -184,6 +184,25 @@ await check('write job edits; second writer refused', 'codex', async () => {
   return `second writer exit 6; job done; calc.js changed: ${git('diff', '--stat').stdout.trim()}`;
 });
 
+// 6b. gemini --write edits a file (agy accept-edits)
+await check('write job edits a file', 'gemini', async () => {
+  const target = path.join(repo, 'notes.md');
+  const r = await cli(['ask', 'gemini', '--write', 'Create a file named notes.md containing exactly the line: hello from gemini']);
+  const id = r.stdout.split('\n')[0].trim();
+  expect(r.code === 0, `exit ${r.code}: ${r.stdout.slice(-300)}`);
+  expect(fs.existsSync(target) && /hello from gemini/.test(fs.readFileSync(target, 'utf8')), 'notes.md not written');
+  return `notes.md written; job ${readJobFile(id).state}`;
+});
+
+// 6c. codex at high effort: a long first turn must not trip the 45 s first-event deadline
+await check('high-effort job is not cut off', 'codex', async () => {
+  const r = await cli(['ask', 'codex', '--effort', 'high', 'Think carefully: list every input for which sumTo in calc.js returns a wrong result, and explain why, in under 120 words.']);
+  const id = r.stdout.split('\n')[0].trim();
+  const job = readJobFile(id);
+  expect(r.code === 0 && job.state === 'done', `exit ${r.code}, ${job.state}: ${job.reason}`);
+  return `done in ${Math.round(r.ms / 1000)}s at --effort high`;
+});
+
 for (const v of vendors) {
   // 7. cancel
   await check('cancel mid-run', v, async () => {

@@ -333,3 +333,72 @@ test('lock: a holder whose job folder exists but job.json is unreadable is not r
   fs.utimesSync(lock, old, old);
   assert.equal(acquireWriter(w, 'codex-me-bbbb', { CREWMATE_SPAWN_GRACE_MS: '100' }).ok, false);
 });
+
+// ---- Final review findings ----
+test('FR-C1: codex turn.started counts as a response (a long first turn is not "did not respond")', async () => {
+  const { w, id } = startJob('codex', { env: { FAKE_FIXTURE: fixture('codex.ndjson'), FAKE_DELAY_MS: '200', CREWMATE_FIRST_EVENT_MS: '300' } });
+  const j = await finalOf(w, id);
+  assert.equal(j.state, 'done', j.reason);
+});
+
+test('FR-I5: a read-only gemini job refuses to run when the user\'s agy settings allow mutating tools', async () => {
+  const { home } = tempHome();
+  fs.mkdirSync(path.join(home, '.gemini', 'antigravity-cli'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.gemini', 'antigravity-cli', 'settings.json'), JSON.stringify({ permissions: { allow: ['write_file(*)'] } }));
+  const w = resolveWorkspace(tempDir(), { CREWMATE_HOME: home });
+  const job = createJob(w, { vendor: 'gemini', kind: 'ask', promptSummary: 'p', flags: { timeoutMs: 5000 } });
+  fs.writeFileSync(path.join(jobDir(w, job.id), 'prompt.txt'), 'x');
+  const log = path.join(tempDir(), 'argv.log');
+  spawnRunner(w, job.id, { PATH: fakePath(['agy']), HOME: home, CREWMATE_HOME: home, FAKE_FIXTURE: fixture('agy-plan.ndjson'), FAKE_ARGV_LOG: log });
+  const j = await finalOf(w, job.id);
+  assert.equal(j.state, 'failed');
+  assert.match(j.reason, /agy settings allow write_file/);
+  assert.equal(fs.existsSync(log), false, 'agy never started');
+});
+
+test('FR-M2: the continuation message for a gemini --write job does not claim the run is read-only', async () => {
+  const log = path.join(tempDir(), 'argv.log');
+  const { w, id } = startJob('gemini', {
+    flags: { write: true },
+    env: { FAKE_FIXTURE: fixture('agy2.ndjson'), FAKE_FIXTURE_RESUME: fixture('agy-denied-with-answer.ndjson'), FAKE_ARGV_LOG: log },
+  });
+  await finalOf(w, id);
+  const second = JSON.parse(fs.readFileSync(log, 'utf8').trim().split('\n')[1]);
+  assert.doesNotMatch(second[1], /read-only/);
+  assert.match(second[1], /shell commands are not available/);
+});
+
+test('FR-M4: state folders are private to the user (0700)', () => {
+  const { home } = tempHome();
+  const w = resolveWorkspace(tempDir(), { CREWMATE_HOME: home });
+  const job = createJob(w, { vendor: 'codex', kind: 'ask', promptSummary: 'p', flags: {} });
+  for (const d of [path.join(home, '.crewmate'), w.stateDir, jobDir(w, job.id)]) {
+    assert.equal(fs.statSync(d).mode & 0o777, 0o700, d);
+  }
+});
+
+test('FR-I3: a busy lock mutex is a refusal (ok: false), not a thrown error', () => {
+  const w = lockWs();
+  fs.writeFileSync(path.join(w.stateDir, 'writer.lock.mutex'), 'someone');
+  const r = acquireWriter(w, 'codex-me-bbbb', { CREWMATE_MUTEX_WAIT_MS: '200' });
+  assert.equal(r.ok, false);
+});
+
+test('FR-I4: releaseWriter waits for the lock mutex', async () => {
+  const w = lockWs();
+  fs.writeFileSync(path.join(w.stateDir, 'writer.lock'), 'codex-me-bbbb');
+  const m = path.join(w.stateDir, 'writer.lock.mutex');
+  fs.writeFileSync(m, 'other');
+  setTimeout(() => fs.unlinkSync(m), 400);
+  const child = spawnProc(process.execPath, ['-e', `
+    import('${path.join(FIXTURES, '..', '..', 'plugins/crewmate/lib/lock.mjs')}').then(({ releaseWriter }) => {
+      const t0 = Date.now();
+      releaseWriter(${JSON.stringify(w)}, 'codex-me-bbbb');
+      process.stdout.write(String(Date.now() - t0));
+    });`]);
+  let out = '';
+  child.stdout.on('data', (d) => (out += d));
+  await new Promise((r) => child.on('close', r));
+  assert.ok(Number(out) >= 250, `released after ${out} ms while the mutex was held`);
+  assert.equal(fs.existsSync(path.join(w.stateDir, 'writer.lock')), false);
+});

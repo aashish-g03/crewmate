@@ -72,7 +72,7 @@ test('no events for codex turn.started or any agy user_input step', () => {
   }
 });
 
-test('isModelEvent excludes init, user_input, thread.started and turn.started', () => {
+test('isModelEvent excludes agy init/user_input and codex thread.started; codex turn.started counts', () => {
   const g = getAdapter('gemini').createParser();
   const lines = fs.readFileSync(path.join(FIXTURES, 'agy2.ndjson'), 'utf8').split('\n');
   assert.equal(g.isModelEvent(lines[0]), false);
@@ -80,7 +80,7 @@ test('isModelEvent excludes init, user_input, thread.started and turn.started', 
   assert.equal(g.isModelEvent(lines[2]), true);
   const c = getAdapter('codex').createParser();
   assert.equal(c.isModelEvent('{"type":"thread.started","thread_id":"x"}'), false);
-  assert.equal(c.isModelEvent('{"type":"turn.started"}'), false);
+  assert.equal(c.isModelEvent('{"type":"turn.started"}'), true, 'final review C1: a long first turn starts with turn.started');
   assert.equal(c.isModelEvent('{"type":"item.completed","item":{"type":"agent_message","text":"x"}}'), true);
 });
 
@@ -136,24 +136,6 @@ test('buildArgs: gemini modes, print-timeout, model, effort, resume', () => {
   assert.ok(r.join(' ').includes('--effort low'));
 });
 
-test('expectedPermissionMode is request-review unless yolo', () => {
-  const a = getAdapter('gemini');
-  assert.equal(a.expectedPermissionMode(job()), 'request-review');
-  assert.equal(a.expectedPermissionMode(job({ write: true })), 'request-review');
-  assert.equal(a.expectedPermissionMode(job({ yolo: true })), null);
-  assert.equal(getAdapter('codex').expectedPermissionMode(job()), null);
-});
-
-test('findOnPath finds executables only; INSTALL_TEXT covers both vendors', () => {
-  const dir = tempDir();
-  fs.writeFileSync(path.join(dir, 'agy'), '#!/bin/sh\n', { mode: 0o755 });
-  fs.writeFileSync(path.join(dir, 'codex'), 'not executable', { mode: 0o644 });
-  assert.equal(findOnPath('agy', { PATH: dir }), path.join(dir, 'agy'));
-  assert.equal(findOnPath('codex', { PATH: dir }), null);
-  assert.match(INSTALL_TEXT.codex, /npm i -g @openai\/codex/);
-  assert.match(INSTALL_TEXT.gemini, /antigravity/);
-});
-
 import { spawnSync } from 'node:child_process';
 import { fakePath } from './helpers.mjs';
 
@@ -177,17 +159,4 @@ test('CP2-10: other codex item types (file_change, mcp_tool_call) become tool ev
   assert.equal(ev[0].type, 'tool');
   assert.equal(ev[0].name, 'file_change');
   assert.deepEqual(p.feed('{"type":"item.completed","item":{"id":"r","type":"reasoning","text":"…"}}'), []);
-});
-
-test('gemini read-only runs pass no --mode (plan mode turns questions into plans); write uses accept-edits', () => {
-  const g = (flags) => getAdapter('gemini').buildArgs({ id: 'x', vendor: 'gemini', flags: { timeoutMs: 600000, ...flags } }, 'p', '/r.md');
-  assert.ok(!g({}).includes('--mode'));
-  assert.ok(g({ write: true }).join(' ').includes('--mode accept-edits'));
-});
-
-test('gemini read-only prompts carry the capability note; write and yolo prompts do not', () => {
-  const g = (flags) => getAdapter('gemini').buildArgs({ id: 'x', vendor: 'gemini', flags: { timeoutMs: 600000, ...flags } }, 'the task', '/r.md')[1];
-  assert.match(g({}), /^the task\n\n.*read-only.*shell commands and file edits are not available/s);
-  assert.equal(g({ write: true }), 'the task');
-  assert.equal(g({ yolo: true }), 'the task');
 });

@@ -45,7 +45,7 @@ function tryCreate(p, jobId) {
   }
 }
 
-const MUTEX_WAIT_MS = 3000;
+const MUTEX_WAIT_MS = 3000; // CREWMATE_MUTEX_WAIT_MS overrides (tests)
 const MUTEX_STALE_MS = 5000;
 
 /** Synchronous sleep (acquireWriter is synchronous). @param {number} ms */
@@ -53,21 +53,23 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+class MutexBusy extends Error {}
+
 /**
  * A short-lived mutex around the check → unlink → create sequence, so two callers reclaiming the
  * same stale lock cannot both succeed (one could otherwise delete the other's fresh lock).
  * @param {string} p lock path @param {() => any} fn
  */
-function withMutex(p, fn) {
+function withMutex(p, fn, env = process.env) {
   const m = `${p}.mutex`;
   const token = `${process.pid}-${Math.random().toString(36).slice(2)}`;
-  const until = Date.now() + MUTEX_WAIT_MS;
+  const until = Date.now() + Number(env.CREWMATE_MUTEX_WAIT_MS ?? MUTEX_WAIT_MS);
   for (;;) {
     if (tryCreate(m, token)) break;
     try {
       if (Date.now() - fs.statSync(m).mtimeMs > MUTEX_STALE_MS) fs.unlinkSync(m); // holder crashed
     } catch {}
-    if (Date.now() > until) throw new Error('writer lock is busy (could not get its mutex)');
+    if (Date.now() > until) throw new MutexBusy();
     sleepSync(20);
   }
   try {
@@ -90,7 +92,17 @@ function withMutex(p, fn) {
 export function acquireWriter(ws, jobId, env = process.env) {
   fs.mkdirSync(ws.stateDir, { recursive: true });
   const p = lockPath(ws);
-  return withMutex(p, () => {
+  try {
+    return withMutex(p, () => acquireLocked(ws, p, jobId, env), env);
+  } catch (err) {
+    if (err instanceof MutexBusy) return { ok: false, holder: readHolder(p) ?? 'unknown (lock busy)' };
+    throw err;
+  }
+}
+
+/** The body of acquireWriter; runs under the mutex. */
+function acquireLocked(ws, p, jobId, env) {
+  {
     for (let attempt = 0; attempt < 2; attempt++) {
       if (tryCreate(p, jobId)) {
         return readHolder(p) === jobId ? { ok: true } : { ok: false, holder: readHolder(p) ?? 'unknown' };
@@ -120,15 +132,24 @@ export function acquireWriter(ws, jobId, env = process.env) {
       }
     }
     return { ok: false, holder: readHolder(p) ?? 'unknown' };
-  });
+  }
 }
 
 /** @param {import('./workspace.mjs').Workspace} ws @param {string} jobId */
 export function releaseWriter(ws, jobId) {
   const p = lockPath(ws);
-  if (readHolder(p) === jobId) {
-    try {
-      fs.unlinkSync(p);
-    } catch {}
+  const release = () => {
+    if (readHolder(p) === jobId) {
+      try {
+        fs.unlinkSync(p);
+      } catch {}
+    }
+  };
+  // Under the mutex, so a reclaimer cannot replace the lock between our read and our unlink.
+  try {
+    withMutex(p, release);
+  } catch (err) {
+    if (!(err instanceof MutexBusy)) throw err;
+    release(); // mutex stuck: release anyway rather than leave our lock behind
   }
 }

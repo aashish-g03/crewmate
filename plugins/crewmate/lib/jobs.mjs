@@ -48,12 +48,12 @@ export function jobDir(ws, id) {
  * @returns {Job}
  */
 export function createJob(ws, fields, makeId = newJobId) {
-  fs.mkdirSync(jobsRoot(ws), { recursive: true });
+  ensurePrivateDirs(ws);
   let id;
   for (let attempt = 0; ; attempt++) {
     id = makeId(fields.vendor);
     try {
-      fs.mkdirSync(jobDir(ws, id)); // not recursive: an existing folder means an id collision
+      fs.mkdirSync(jobDir(ws, id), { mode: 0o700 }); // not recursive: an existing folder means an id collision
       break;
     } catch (err) {
       if (err.code !== 'EEXIST' || attempt >= 5) throw err;
@@ -79,6 +79,20 @@ export function createJob(ws, fields, makeId = newJobId) {
   };
   writeJob(ws, job);
   return job;
+}
+
+/**
+ * Prompts and answers can contain code: keep ~/.crewmate and everything under it user-only.
+ * @param {Workspace} ws
+ */
+export function ensurePrivateDirs(ws) {
+  const crewRoot = path.dirname(path.dirname(ws.stateDir)); // …/.crewmate
+  for (const d of [crewRoot, path.dirname(ws.stateDir), ws.stateDir, jobsRoot(ws)]) {
+    fs.mkdirSync(d, { recursive: true, mode: 0o700 });
+    try {
+      fs.chmodSync(d, 0o700);
+    } catch {}
+  }
 }
 
 /** Atomic write: job.json.tmp then rename. @param {Workspace} ws @param {Job} job */

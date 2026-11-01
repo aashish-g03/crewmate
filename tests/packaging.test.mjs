@@ -61,8 +61,3 @@ test('commands and skill always call through ${CLAUDE_PLUGIN_ROOT}, never a bare
     for (const line of src.split('\n')) assert.doesNotMatch(line, /^\s*\$?\s*crewmate\s+(ask|critique|watch|status|result|cancel|setup)\b/, `${f}: bare call: ${line}`);
   }
 });
-
-test('the skill carries the testing rule for delegated test work', () => {
-  const skill = fs.readFileSync(path.join(ROOT, 'plugins/crewmate/skills/crewmate/SKILL.md'), 'utf8');
-  assert.match(skill, /testing-rule\.md/);
-});

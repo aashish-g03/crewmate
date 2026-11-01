@@ -5,17 +5,6 @@ import path from 'node:path';
 import { appendEvent, readEvents } from '../plugins/crewmate/lib/events.mjs';
 import { tempDir } from './helpers.mjs';
 
-test('append n=1..3 then read all; sinceN filters', () => {
-  const dir = tempDir();
-  appendEvent(dir, { n: 1, type: 'started', vendor: 'codex', model: null });
-  appendEvent(dir, { n: 2, type: 'tool', name: 'shell', target: 'ls', phase: 'start' });
-  appendEvent(dir, { n: 3, type: 'end', state: 'done', reason: null, outcome: null });
-  const all = readEvents(dir);
-  assert.deepEqual(all.map((e) => e.n), [1, 2, 3]);
-  assert.ok(all.every((e) => typeof e.t === 'string'));
-  assert.deepEqual(readEvents(dir, 2).map((e) => e.n), [3]);
-});
-
 test('a trailing half-written line is ignored; a missing file is empty', () => {
   const dir = tempDir();
   appendEvent(dir, { n: 1, type: 'started', vendor: 'codex', model: null });

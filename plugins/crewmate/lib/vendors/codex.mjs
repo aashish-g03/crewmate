@@ -76,7 +76,9 @@ export const codexAdapter = {
       isModelEvent(line) {
         const o = parseJson(line);
         if (!o || typeof o.type !== 'string') return false;
-        return o.type.startsWith('item.') || o.type === 'turn.completed' || o.type === 'turn.failed';
+        // turn.started counts: at high effort the first item can take a minute; a signed-out codex
+        // fails fast with an error and a non-zero exit instead of hanging.
+        return o.type.startsWith('item.') || o.type.startsWith('turn.');
       },
       finish() {
         return out;

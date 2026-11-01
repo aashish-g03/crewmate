@@ -13,7 +13,8 @@ import { geminiAdapter } from './gemini.mjs';
  *            lastError?: string|null, timedOut?: boolean}} ParsedOutcome
  * @typedef {{feed(line: string): VendorEvent[], isModelEvent(line: string): boolean, finish(): ParsedOutcome}} Parser
  * @typedef {{binary: 'codex'|'agy', buildArgs(job: any, prompt: string, resultFile: string): string[],
- *            createParser(): Parser, expectedPermissionMode(job: any): 'request-review'|null}} Adapter
+ *            createParser(): Parser, expectedPermissionMode(job: any): 'request-review'|null,
+ *            preflight?(job: any, env: NodeJS.ProcessEnv): string|null}} Adapter
  */
 
 export const INSTALL_TEXT = {

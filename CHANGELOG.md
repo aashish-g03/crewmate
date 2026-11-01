@@ -18,7 +18,7 @@ A rewrite. crewmate is now a Claude Code plugin around one zero-dependency Node.
 ### Removed
 - The filesystem mailbox, worker pool (`crewmate up`), MCP server, Bash subagent, ACP transport, Bun runtime and Kimi worker.
 
-## [0.2.0] — Persistent worker contexts (v1.1) — pending merge
+## [0.2.0] — Persistent worker contexts (v1.1)
 
 > Strictly additive over v0.1.0. Every existing CLI invocation and every
 > existing MCP tool call produces byte-identical results to v0.1.0 when no

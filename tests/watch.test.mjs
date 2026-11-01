@@ -320,3 +320,10 @@ test('watch --brief: a summary line per interval while running, errors at once',
   const e = await cli(['ask', 'gemini', '--brief', 'x'], { env: { FAKE_FIXTURE: fx('agy-denied-with-answer.ndjson') } });
   assert.match(e.stdout, /✗ run_command/);
 });
+
+test('FR-M3: watch --brief prints a still-running line per interval even with no tool steps', async () => {
+  const { cli } = setup();
+  const r = await cli(['ask', 'codex', '--brief', 'x'], { env: { FAKE_FIXTURE: fx('codex-denied.ndjson'), FAKE_DELAY_MS: '200', CREWMATE_BRIEF_EVERY_MS: '300' } });
+  assert.equal(r.code, 0, r.stdout);
+  assert.match(r.stdout, /still running/);
+});

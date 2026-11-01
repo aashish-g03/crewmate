@@ -52,7 +52,9 @@ const LOG_CAP_BYTES = 1_000_000;
 // agy in headless mode ends its turn with an empty answer after any denied tool. Continuing the
 // same conversation once with this message recovers a real answer (recorded 2026-11-01).
 export const CONTINUE_AFTER_DENIAL =
-  'Your last tool call was denied: this run does not allow that tool (shell commands and file edits are not available in read-only runs). Continue using only file-reading tools (read_file, list_dir, grep_search) and give your final answer now.';
+  'Your last tool call was denied: this run is read-only, so shell commands and file edits are not available. Continue using only file-reading tools (read_file, list_dir, grep_search) and give your final answer now.';
+export const CONTINUE_AFTER_DENIAL_WRITE =
+  'Your last tool call was denied: shell commands are not available in this run (file edits are allowed). Continue without shell commands and give your final answer now.';
 
 /**
  * Run one job to a final state. Exactly one `end` event and one final state on every path.
@@ -271,7 +273,7 @@ export function runJob(ws, jobId, env) {
         emit({ type: 'note', text: `continuing after denied tool (${denied.join(', ')})` });
         parser = adapter.createParser();
         const contJob = { ...job, flags: { ...job.flags, resumeConversationId: parsed.conversationId } };
-        attempt(adapter.buildArgs(contJob, CONTINUE_AFTER_DENIAL, resultFile), onSettled);
+        attempt(adapter.buildArgs(contJob, job.flags?.write ? CONTINUE_AFTER_DENIAL_WRITE : CONTINUE_AFTER_DENIAL, resultFile), onSettled);
         return;
       }
       end('failed', `vendor returned no answer${denied.length ? ` (denied: ${denied.join(', ')})` : ''}`, exitCode);
@@ -296,6 +298,8 @@ export function runJob(ws, jobId, env) {
         }, firstEventMs),
       );
       timers.push(setTimeout(() => end('timeout', `no result within ${Math.round(timeoutMs / 1000)}s`), timeoutMs));
+      const refused = adapter.preflight?.(job, env);
+      if (refused) return end('failed', refused);
       attempt(adapter.buildArgs(job, prompt, resultFile), onSettled);
     } catch (err) {
       end('failed', `crewmate error: ${err?.message ?? err}`);

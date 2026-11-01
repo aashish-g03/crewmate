@@ -100,6 +100,15 @@ export async function run(argv, io) {
   const stray = words.find((w) => w.startsWith('--'));
   if (stray) throw new UsageError(`unknown option ${stray}`);
   const timeoutMs = options.timeout ? parseDuration(options.timeout) : DEFAULT_TIMEOUT_MS;
+  for (const k of ['model', 'effort']) {
+    if (options[k] !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options[k])) throw new UsageError(`invalid --${k} value: ${JSON.stringify(options[k])}`);
+  }
+  // `--resume <job-id>` (space form): take the id when the first prompt word names an existing job.
+  if (found.resume === true && words.length && /^[a-z0-9][a-z0-9-]{0,63}$/.test(words[0])) {
+    const maybe = resolveWorkspace(io.cwd, io.env);
+    const { readJob } = await import('../jobs.mjs');
+    if (readJob(maybe, words[0])) found.resume = /** @type {string} */ (words.shift());
+  }
 
   let prompt = words.join(' ');
   if (!prompt.trim() && options['prompt-file']) {

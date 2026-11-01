@@ -1,5 +1,9 @@
 // Gemini adapter: Antigravity CLI `agy -p … --output-format stream-json`.
+import fs from 'node:fs';
+import path from 'node:path';
 import { parseJson, cut } from './index.mjs';
+
+const MUTATING = /^(write|replace|multi_replace|sed|notebook|command|run_command|delete|move|create|\*)/i;
 
 export const READ_ONLY_NOTE =
   'Note from crewmate: this run is read-only. Read files with your file tools (read_file, list_dir, grep_search); shell commands and file edits are not available and will be denied.';
@@ -100,6 +104,24 @@ export const geminiAdapter = {
         return out;
       },
     };
+  },
+
+  /**
+   * Fail closed: agy reports `request-review` even when the user's settings allow writes or shell
+   * (recorded 2026-11-01: a write_file allow-rule wrote the file). A read-only job must not run then.
+   */
+  preflight(job, env) {
+    if (job.flags?.write || job.flags?.yolo) return null;
+    const file = path.join(env.HOME || '', '.gemini', 'antigravity-cli', 'settings.json');
+    let allow = [];
+    try {
+      allow = JSON.parse(fs.readFileSync(file, 'utf8'))?.permissions?.allow ?? [];
+    } catch {
+      return null; // no settings file, or unreadable: nothing allowed beyond the headless default
+    }
+    const risky = (Array.isArray(allow) ? allow : []).filter((r) => MUTATING.test(String(r)));
+    if (!risky.length) return null;
+    return `agy settings allow ${risky.join(', ')} (${file}); crewmate cannot keep this read-only run read-only — remove those rules or pass --write`;
   },
 
   expectedPermissionMode(job) {
