@@ -160,3 +160,24 @@ test('CP2-10: other codex item types (file_change, mcp_tool_call) become tool ev
   assert.equal(ev[0].name, 'file_change');
   assert.deepEqual(p.feed('{"type":"item.completed","item":{"id":"r","type":"reasoning","text":"…"}}'), []);
 });
+
+test('agy preflight fails closed: any allow rule outside the read-only set, or an unreadable settings file, refuses a read-only job', () => {
+  const g = getAdapter('gemini');
+  const home = tempDir();
+  const dir = path.join(home, '.gemini', 'antigravity-cli');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'settings.json');
+  const job = { flags: {} };
+  assert.equal(g.preflight(job, { HOME: home }), null, 'no settings file');
+  fs.writeFileSync(file, JSON.stringify({ trustedWorkspaces: ['/x'] }));
+  assert.equal(g.preflight(job, { HOME: home }), null, 'no permissions');
+  fs.writeFileSync(file, JSON.stringify({ permissions: { allow: ['read_file(*)', 'list_dir(*)', 'grep_search(*)'] } }));
+  assert.equal(g.preflight(job, { HOME: home }), null, 'read-only rules');
+  for (const rule of ['edit_file(*)', 'apply_patch', 'run_shell_command(ls)', 'mcp__x__y']) {
+    fs.writeFileSync(file, JSON.stringify({ permissions: { allow: ['read_file(*)', rule] } }));
+    assert.match(g.preflight(job, { HOME: home }) ?? '', new RegExp(rule.replace(/[()*]/g, '\\$&')), rule);
+  }
+  fs.writeFileSync(file, '{not json');
+  assert.match(g.preflight(job, { HOME: home }) ?? '', /cannot read/);
+  assert.equal(g.preflight({ flags: { write: true } }, { HOME: home }), null, '--write is not checked');
+});

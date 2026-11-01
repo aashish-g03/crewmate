@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseJson, cut } from './index.mjs';
 
-const MUTATING = /^(write|replace|multi_replace|sed|notebook|command|run_command|delete|move|create|\*)/i;
+const READ_ONLY_RULE = /^(read_file|list_dir|grep_search|find_by_name|view_file|read_url_content|search_web)(\(.*\))?$/;
 
 export const READ_ONLY_NOTE =
   'Note from crewmate: this run is read-only. Read files with your file tools (read_file, list_dir, grep_search); shell commands and file edits are not available and will be denied.';
@@ -113,13 +113,20 @@ export const geminiAdapter = {
   preflight(job, env) {
     if (job.flags?.write || job.flags?.yolo) return null;
     const file = path.join(env.HOME || '', '.gemini', 'antigravity-cli', 'settings.json');
-    let allow = [];
+    let text;
     try {
-      allow = JSON.parse(fs.readFileSync(file, 'utf8'))?.permissions?.allow ?? [];
+      text = fs.readFileSync(file, 'utf8');
     } catch {
-      return null; // no settings file, or unreadable: nothing allowed beyond the headless default
+      return null; // no settings file: only the headless default applies
     }
-    const risky = (Array.isArray(allow) ? allow : []).filter((r) => MUTATING.test(String(r)));
+    let allow;
+    try {
+      allow = JSON.parse(text)?.permissions?.allow ?? [];
+    } catch {
+      return `cannot read agy settings (${file}); crewmate cannot confirm this run is read-only — fix the file or pass --write`;
+    }
+    // Known-safe list, not a known-bad list: any rule outside it may let agy write or run commands.
+    const risky = (Array.isArray(allow) ? allow : [allow]).filter((r) => !READ_ONLY_RULE.test(String(r)));
     if (!risky.length) return null;
     return `agy settings allow ${risky.join(', ')} (${file}); crewmate cannot keep this read-only run read-only — remove those rules or pass --write`;
   },
