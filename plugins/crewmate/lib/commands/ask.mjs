@@ -9,6 +9,7 @@ import { effectiveState, isPrunable } from '../liveness.mjs';
 import { acquireWriter } from '../lock.mjs';
 import { spawnRunner } from '../runner.mjs';
 import { getAdapter, findOnPath, INSTALL_TEXT } from '../vendors/index.mjs';
+import { checkModelChoice } from '../models.mjs';
 
 export const MAX_PROMPT_BYTES = 100_000;
 const DEFAULT_TIMEOUT_MS = 600_000;
@@ -127,6 +128,8 @@ export async function run(argv, io) {
     io.stderr.write(`crewmate: ${missing}\n`);
     return 3;
   }
+  const badChoice = checkModelChoice(/** @type {any} */ (vendor), options.model ?? null, options.effort ?? null, io.env);
+  if (badChoice) throw new UsageError(`${badChoice} (see: crewmate models ${vendor})`);
 
   const ws = resolveWorkspace(io.cwd, io.env);
   let resumeConversationId = null;

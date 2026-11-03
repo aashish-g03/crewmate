@@ -11,6 +11,7 @@ const COMMANDS = {
   result: '../lib/commands/result.mjs',
   cancel: '../lib/commands/cancel.mjs',
   setup: '../lib/commands/setup.mjs',
+  models: '../lib/commands/models.mjs',
   _run: '../lib/runner.mjs',
 };
 
@@ -24,6 +25,7 @@ commands:
   result <id>                   print a job's answer and outcome
   cancel <id>                   stop a running job
   setup                         check Node and vendor CLIs
+  models [codex|gemini]         models and effort levels each vendor offers
 `;
 
 // A closed stdout (e.g. `crewmate watch … | head -1`) is not an error.

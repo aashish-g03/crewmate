@@ -68,6 +68,7 @@ You need at least one vendor. No API keys: crewmate drives the CLIs you're alrea
 | `/crewmate:result <id>` | A job's answer and outcome: state, duration, tokens, denied tools, tool errors. |
 | `/crewmate:cancel <id>` | Stop a running job and its whole vendor process group. |
 | `/crewmate:setup` | Check Node and both CLIs. |
+| `/crewmate:models [codex\|gemini]` | The models and effort levels each vendor offers on your account, with your configured default marked. `--model`/`--effort` are checked against it. |
 
 Or just ask Claude: *"get a second opinion from Gemini on this migration"*. The bundled skill tells Claude when another model helps and how to watch the job.
 

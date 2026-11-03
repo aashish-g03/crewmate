@@ -16,6 +16,7 @@ crewmate runs Codex or Gemini as detached jobs in the current folder and streams
 ## How
 - Start: `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" ask <codex|gemini> [--detach] [flags] <<'CREWMATE_PROMPT'` … `CREWMATE_PROMPT` (prompt always on stdin by heredoc).
 - Watch: a Monitor on `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" watch --brief <id>` (timeout_ms ≥ job timeout, max 1800000; re-arm with `--since=<n>`). If Monitor is unavailable, run the same `watch` as a background Bash command.
+- Models: before passing `--model` or `--effort`, run `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" models --json` and pick from it (effort levels differ per model). Without either flag the vendor's own default is used, which is usually right; a wrong id fails at once with the valid choices.
 - Read: `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" result <id>`; list: `… status`; stop: `… cancel <id>`; check CLIs: `… setup`.
 - Critique: `node "${CLAUDE_PLUGIN_ROOT}/bin/crewmate" critique <paths> | --diff`, then watch all ids and present each report plus the findings both raised.
 

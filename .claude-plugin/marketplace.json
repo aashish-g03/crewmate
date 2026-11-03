@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "crewmate: hand work from Claude Code to Codex and Gemini.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "plugins": [
     {

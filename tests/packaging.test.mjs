@@ -54,7 +54,7 @@ test('commands and skill always call through ${CLAUDE_PLUGIN_ROOT}, never a bare
     path.join(ROOT, 'plugins/crewmate/skills/crewmate/SKILL.md'),
   ];
   const names = files.map((f) => path.basename(f)).sort();
-  assert.deepEqual(names, ['SKILL.md', 'ask.md', 'cancel.md', 'critique.md', 'result.md', 'setup.md', 'status.md']);
+  assert.deepEqual(names, ['SKILL.md', 'ask.md', 'cancel.md', 'critique.md', 'models.md', 'result.md', 'setup.md', 'status.md']);
   for (const f of files) {
     const src = fs.readFileSync(f, 'utf8');
     assert.ok(src.includes('${CLAUDE_PLUGIN_ROOT}/bin/crewmate'), `${f} uses the plugin root`);
